@@ -57,12 +57,8 @@ const LaunchLayout: React.FC<{
             />
             <div className={styles.title}>
                 <div>
-                <span>
-                    YakClient
-                </span>
-                    <span>
-                    BETA
-                </span>
+                    <span>YakClient</span>
+                    <span>BETA1</span>
                 </div>
             </div>
             <Container id={styles.main_button_container} style={{

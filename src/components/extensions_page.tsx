@@ -55,9 +55,9 @@ const Extensions: React.FC = () => {
         },
         {
             id: 0,
-            title: "Steam powered",
-            image: "https://media.forgecdn.net/avatars/thumbnails/1005/598/256/256/638527009420858237.png",
-            description: "Steam Powered is a technology mod adding Steampunk styled machines, mobs, items, armor and more.",
+            title: "The Quackening",
+            image: "https://media.forgecdn.net/avatars/thumbnails/999/320/256/256/638517988079064219.jpg",
+            description: "Ducks will invade your world and raid you. Find and take down the bases they create, and arm yourself against the ducks. ",
             state: ExtensionState.Enabled
         }
     ])
