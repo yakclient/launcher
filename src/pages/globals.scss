@@ -1,0 +1,58 @@
+
+@import "theme";
+
+
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: 'Roboto', sans-serif;
+
+    user-select: none;
+}
+
+
+//
+//input[type="radio"] {
+//    appearance: none;
+//    margin: 0 10px;
+//
+//    font: inherit;
+//    color: currentColor;
+//    width: 0.7em;
+//    height: 0.7em;
+//    border: 0.1em solid currentColor;
+//    border-radius: 50%;
+//    transform: translateY(1.5em);
+//
+//    display: grid;
+//    place-content: center;
+//}
+//
+//input[type="radio"]::before {
+//    content: "";
+//    width: 0.5em;
+//    height: 0.5em;
+//    border-radius: 50%;
+//    transform: scale(0);
+//    transition: 120ms transform ease-in-out;
+//    /* Windows High Contrast Mode */
+//    background-color: #d9f2f5;
+//}
+//
+//input[type="radio"]:checked::before {
+//    transform: scale(1);
+//}
+//
+//input[type="radio"]:focus {
+//    /*outline: max(2px, 0.15em) solid currentColor;*/
+//    /*outline-offset: max(2px, 0.15em);*/
+//}
+
+
+
+button {
+    //background-color: $backgroundColor;
+    border: none;
+
+}
