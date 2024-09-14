@@ -1,0 +1,51 @@
+// Define some basic colors and spacing
+$console-bg-color: #1e1e1e
+$console-text-color: #ffffff
+$header-bg-color: #2d2d2d
+$button-size: 12px
+$button-margin: 6px
+
+#consoleHeader
+  background-color: $header-bg-color
+  padding: 10px 15px
+  display: flex
+  align-items: center
+  height: 32px
+
+  h1
+    font-size: 14px
+    font-weight: normal
+    margin: 0
+    color: $console-text-color
+
+#consoleContent
+  background-color: $console-bg-color
+  padding: 10px
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace
+  font-size: 12px
+
+  overflow: scroll
+  white-space: nowrap
+  text-wrap: nowrap
+  //width: 200px
+
+  color: $console-text-color
+  max-height: 85vh
+
+.styles.consoleLine
+  display: flex
+  align-items: center
+  margin-bottom: 4px
+
+  div
+    //display: inline-block
+    width: 10px
+    height: 10px
+    margin-right: 8px
+    border-radius: 50%
+
+#end
+  max-height: 50px
+  position: absolute
+  bottom: 0px
+  margin: 10px

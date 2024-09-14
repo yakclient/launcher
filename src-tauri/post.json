@@ -1,0 +1,9 @@
+ {
+    "Properties": {
+        "AuthMethod": "RPS",
+        "SiteName": "user.auth.xboxlive.com",
+        "RpsTicket": "d=EwAoA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAavKLjQso/ydGGFakNmVpNnKUUYa421sP/g7aqjqhgFvG2GmQCljeony7vryM5WDyO4u4OSQZMgY6gFLhHXN6dSgkkb6mPb/OEQVGL4aMRPE5zxSWL59OblUICXHo8twzGjAGRxZ7y0duoIBpm35RuqpTCxmtHKlMNLHfegasz8v23Lm6qHJwJmwyI8skh5ijg3Jh15VBnYfkgbNjO0YA+TvH6SzbqOC9RNkbyHsxzzhTOhrLaM4hJWBPT1bXzOjKvYVSqMCqJFeyNTzvOa2/3YTNNtdFoHY9bPmf5zmLxNlXVO88XxqmQa2FHCgcudl46uFS8b6XOgQmHc0GvPrqacQZgAAEDE/LpQgpdc2swo+Cql7nITwAQ0BXMf2WTpaXx+6khb/zq9q7OU55Q/nq/v8DdWtXpWlNQ8RrV+vMv2jVdh6wUlW4Ls0KtgrM7i8LqAEOHEfINVXiGOV38kYiTRqF2zKif5MUl8Yn9Kk2I4ownW9TpBRzJSnJZLQlojAU5dtbjNZV6nNeVdu4k0rSEdQFJO6m/UjCmpEYlSAg2GswCPhMFYIVQFfYKgSDj3Mchlx7Hk2m11EARqdyBzYbx1MSISGlx2lrIFQ5R799cJDm/MpCr2X5LZ74QCPCrBbpOrpg5V6OV4Ao+g09hHAUlAc496skGa5PolXjxCtX1P0TGIyuHTYrLLiDAC2vyBnDx/vsg1A+UPwiqJ4lVINxVS27nXUpSxogX/wbg3ZDdNFjsLmGjgcvnXdPb0hXCTy3rVF0VfPzmMn/M3MX0O5hOCPUs8eL4nWhQvKpkcn1MvyZZQsTJtYYqBPdVyjTEKz+hOiQky7ryEACUqh2+j0cv6bvRNWvDCH+PnNpNFMmlAZrJAU88SpUi0tlRCBOEeaMVu6e/i3v5cG/8/aPbE5fH54oXP/w4thM/PwUi8f2/uHEl7AeSJntNQ+cZPf3ER9dUTQGJatv/+RLUFtnDB19neyu5p3aRFk2B2lvI+a0BHB9YFs5eg4p8LzVMS7Qm2z6VMe4L2m9yUkAg==\n"
+    },
+    "RelyingParty": "http://auth.xboxlive.com",
+    "TokenType": "JWT"
+ }

@@ -1,26 +1,66 @@
-import styles from "./index.module.css";
-import LaunchLayout from "@/pages/launch_layout";
-import News from "@/components/news_page";
-import Extensions from "@/components/extensions_page";
-import Mods from "@/components/mods_page";
+import styles from "./index.module.sass"
+import bg_png from "../public/icons/login_bg.png"
+import Image from "next/image";
+import {Alert, Button} from "react-bootstrap";
+import {invoke} from "@tauri-apps/api/tauri";
+import {Alerts} from "@/pages/_app";
+import {useRouter} from "next/router";
+import Link from "next/link";
 
-export default function Home() {
+const Login: React.FC = () => {
+    const router = useRouter();
     return (
-        <LaunchLayout
-            pages={[
-                {
-                    name: "News",
-                    content: <News/>
-                },
-                {
-                    name: "Extensions",
-                    content: <Extensions/>
-                },
-                {
-                    name: "Mods",
-                    content: <Mods/>
-                }
-            ]}
-        />
-    );
+        <Alerts.Consumer>
+            {addAlert =>
+                <div id={styles.container}>
+                    <div id={styles.bg}>
+                        <Image
+                            src={bg_png}
+                            alt={"Background"}
+                            width={500}
+                            height={800}
+                            className={styles.title_image}
+                        />
+                    </div>
+                    <div id={styles.title} className={styles.centered}>
+                        <h1>YakClient Login</h1>
+                    </div>
+                    <div id={styles.login} className={styles.centered}>
+                        <h2>Login with Microsoft</h2>
+                        <Button
+                            as={"button"}
+                            variant="success"
+                            onClick={() => {
+                                invoke("microsoft_login")
+                                    .then(() => {
+                                        addAlert(
+                                            "success",
+                                            <>
+                                                <Alert.Heading>Success!</Alert.Heading>
+                                                <hr/>
+                                                You&apos;ve been authenticated.
+                                            </>
+                                        )
+                                        router.push("/home")
+                                    })
+                                    .catch((reason) => {
+                                        addAlert(
+                                            "danger",
+                                            <>
+                                                <Alert.Heading>Failed to authenticate!</Alert.Heading>
+                                                <hr/>
+                                                {reason}
+                                            </>
+                                        )
+                                    })
+                            }}
+                        >Login</Button>
+                    </div>
+                </div>
+            }
+        </Alerts.Consumer>
+
+    )
 }
+
+export default Login;

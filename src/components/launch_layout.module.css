@@ -27,7 +27,6 @@
     transform: translateY(-200px);
     position: absolute;
     left: 50%;
-
 }
 
 .title div {
@@ -87,4 +86,9 @@
     height: 5px;
     background-color: #ff6347;
     transition: width 0.3s ease, left 0.3s ease;
+}
+
+#relogin {
+    position: absolute;
+    margin: 10px;
 }
