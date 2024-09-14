@@ -112,10 +112,10 @@ pub fn capture_child(
                 &mut std_console,
             ).unwrap();
 
-            transfer_to(
-                &mut child_stderr,
-                &mut std_err_console,
-            ).unwrap();
+            // transfer_to(
+            //     &mut child_stderr,
+            //     &mut std_err_console,
+            // ).unwrap();
         }
     });
 
