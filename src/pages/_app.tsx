@@ -23,7 +23,6 @@ export default function MyApp({Component, pageProps}: AppProps) {
     const [alertCount, setAlertCount] = useState(0);
     const [alerts, setAlerts] = useState<LauncherAlert[]>([]);
 
-
     const addAlert: AddAlert = (variant: Variant, content: ReactNode) => {
         let id = alertCount + 1;
         const alert = {

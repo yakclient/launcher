@@ -1,7 +1,7 @@
-use std::ops::Deref;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
-use serde::Deserialize;
+
+use serde::{Deserialize, Serialize};
 
 pub struct OAuthConfig<'a> {
     pub client_id: &'a str,
@@ -28,11 +28,15 @@ pub struct LaunchInstance {
 }
 
 impl LaunchInstance {
-    // fn new(child: Child) -> LaunchInstance {
-    //
-    // }
-
     pub fn shutdown(&self) {
         self.child.lock().unwrap().kill().expect("Failed to kill process");
     }
 }
+
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct Extension {
+    pub descriptor: String,
+    pub repository: String
+}
+
+pub type ExtensionState = Arc<Mutex<Vec<Extension>>>;

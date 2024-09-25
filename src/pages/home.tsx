@@ -1,8 +1,9 @@
 import LaunchLayout from "@/components/launch_layout";
 import News from "@/components/news_page";
-import Extensions from "@/components/extensions_page";
+import Extensions from "@/components/extensions_search";
 import Mods from "@/components/mods_page";
-import {useRouter} from "next/router";
+import Installed from "@/components/installed";
+import Market from "@/components/market";
 
 export default function Home() {
     return (
@@ -13,12 +14,12 @@ export default function Home() {
                     content: <News/>
                 },
                 {
-                    name: "Extensions",
-                    content: <Extensions/>
+                    name: "Installed",
+                    content: <Installed/>
                 },
                 {
-                    name: "Mods",
-                    content: <Mods/>
+                    name: "Market",
+                    content: <Market/>
                 },
             ]}
         />

@@ -1,5 +1,5 @@
 use std::{io, thread};
-use std::io::{Read, stdout, Write};
+use std::io::{Read, stderr, stdout, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::str::from_utf8;
@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::launch::ClientError;
 use crate::launch::ClientError::IoError;
-use crate::state::MinecraftAuthentication;
+use crate::state::{Extension, MinecraftAuthentication};
 
 #[derive(Clone, Serialize)]
 pub struct ProcessStdoutEvent<'a> {
@@ -20,7 +20,7 @@ pub struct ProcessStdoutEvent<'a> {
 
 fn add_env_args(command: &mut Command) -> &mut Command {
     command.arg("-XstartOnFirstThread")
-        .arg("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=32887")
+        // .arg("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=32887")
         .arg("-jar")
 }
 
@@ -52,18 +52,31 @@ impl<'a> Write for ProcessStdEmitter<'a> {
 pub fn launch_process(
     version: String,
     client_path: PathBuf,
-    auth: &MinecraftAuthentication,
+    auth: &Option<MinecraftAuthentication>,
+    extensions: &Vec<Extension>,
 ) -> Result<Child, ClientError> {
     let mut command = Command::new("java");
     add_env_args(&mut command);
     command
         .arg(client_path.to_str().unwrap())
-        .arg(format!("--version={}", version))
-        .arg(format!("--accessToken={}", auth.access_token))
-        .arg(format!("--uuid={}", auth.profile.id))
-        .arg(format!("--username={}", auth.profile.name))
+        .arg(format!("--version={}", version));
+
+    if let Some(auth) = auth {
+        command.arg(format!("--accessToken={}", auth.access_token))
+            .arg(format!("--uuid={}", auth.profile.id))
+            .arg(format!("--username={}", auth.profile.name));
+    }
+
+    command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    for x in extensions {
+        command.arg("-e");
+        command.arg(x.descriptor.as_str());
+        command.arg("-r");
+        command.arg(format!("default@{}/registry", x.repository.as_str()));
+    }
 
     let child = command
         .spawn()
@@ -82,40 +95,41 @@ pub fn capture_child(
 
     let child = Arc::new(Mutex::new(child));
 
-    let child_copy = child.clone();
+    let clone = app.clone();
     thread::spawn(move || {
-        let mut std_console = ProcessStdEmitter {
-            handle_ref: &app,
+        let mut emitter = ProcessStdEmitter {
+            handle_ref: &clone,
             is_err: false,
         };
 
-        let mut std_err_console = ProcessStdEmitter {
-            handle_ref: &app,
+        loop {
+            let mut buffer: [u8; 64] = [0; 64];
+            // println!("Looping");
+            if let Ok(length) = child_stdout.read(&mut buffer) {
+                if length == 0 {
+                    break;
+                }
+
+                emitter.write(&buffer[0..length]).unwrap();
+            }
+        }
+    });
+
+    let clone = app.clone();
+    thread::spawn(move || {
+        let mut emitter = ProcessStdEmitter {
+            handle_ref: &clone,
             is_err: true,
         };
 
-        while child_copy.lock().unwrap().try_wait().unwrap().is_none() {
-            fn transfer_to(
-                channel_in: &mut impl Read,
-                channel_out: &mut impl Write,
-            ) -> io::Result<()> {
-                let mut buffer: [u8; 64] = [0; 64];
-                if let Ok(length) = channel_in.read(&mut buffer) {
-                    channel_out.write(&buffer[0..length]).unwrap();
+        loop {
+            let mut buffer: [u8; 64] = [0; 64];
+            if let Ok(length) = child_stderr.read(&mut buffer) {
+                if length == 0 {
+                    break;
                 }
-
-                Ok(())
+                emitter.write(&buffer[0..length]).unwrap();
             }
-
-            transfer_to(
-                &mut child_stdout,
-                &mut std_console,
-            ).unwrap();
-
-            // transfer_to(
-            //     &mut child_stderr,
-            //     &mut std_err_console,
-            // ).unwrap();
         }
     });
 

@@ -12,6 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tauri::State;
 use url::form_urlencoded;
+use MicrosoftAuthenticationError::{IOError, ServerError};
 
 use crate::oauth::MicrosoftAuthenticationError::{MalformedOAuthRequest, MsError, NetworkError, XboxLiveResponseError};
 use crate::oauth::server::{HttpServerError, start};
@@ -23,23 +24,20 @@ const OAUTH_PATH: &str = "oauth/v2/microsoft";
 
 pub type Result<T> = std::result::Result<T, MicrosoftAuthenticationError>;
 
-
 #[derive(Debug)]
 pub enum MicrosoftAuthenticationError {
     ServerError(HttpServerError),
     MalformedOAuthRequest(),
     IOError(io::Error),
-    NetworkError(reqwest::Error),
+    NetworkError(Error),
     MsError(MsErrorResponse),
-    XboxLiveResponseError(
-        String
-    ),
+    XboxLiveResponseError(String)
 }
 
 impl Serialize for MicrosoftAuthenticationError {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
-        S: Serializer
+        S: Serializer,
     {
         serializer.serialize_str(self.to_string().as_str())
     }
@@ -48,13 +46,9 @@ impl Serialize for MicrosoftAuthenticationError {
 impl Display for MicrosoftAuthenticationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let str = match self {
-            MicrosoftAuthenticationError::ServerError(e) => {
-                e.to_string()
-            }
-            MalformedOAuthRequest() => {
-                "Malformed OAuth request".to_string()
-            }
-            MicrosoftAuthenticationError::IOError(e) => { e.to_string() }
+            ServerError(e) => { e.to_string() }
+            MalformedOAuthRequest() => { "Malformed OAuth request".to_string() }
+            IOError(e) => { e.to_string() }
             NetworkError(e) => { e.to_string() }
             MsError(e) => { e.error_description.clone() }
             XboxLiveResponseError(e) => { e.clone() }
@@ -70,9 +64,26 @@ impl From<Error> for MicrosoftAuthenticationError {
 }
 
 #[tauri::command]
+pub async fn use_no_auth(
+    mc_creds: State<'_, Arc<Mutex<Option<MinecraftAuthentication>>>>,
+) -> Result<()> {
+    // *mc_creds.lock().unwrap() = Some(MinecraftAuthentication {
+    //     access_token: "".to_string(),
+    //     expires_in: 0,
+    //     refresh_token: "".to_string(),
+    //     profile: MinecraftProfile {
+    //         id: "".to_string(),
+    //         name: "".to_string(),
+    //     },
+    // });
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn microsoft_login(
     oauth_config: State<'_, OAuthConfig<'static>>,
-    mc_creds: State<'_, Arc<RwLock<Option<MinecraftAuthentication>>>>,
+    mc_creds: State<'_, Arc<Mutex<Option<MinecraftAuthentication>>>>,
 ) -> Result<()> {
     let creds = launch_login(&oauth_config).unwrap().unwrap();
 
@@ -85,7 +96,7 @@ pub async fn microsoft_login(
     let minecraft_token = get_minecraft_access_token(xsts_live_token).await?;
     let minecraft_profile = get_minecraft_profile(&minecraft_token).await.unwrap();
 
-    *mc_creds.write().unwrap() = Some(MinecraftAuthentication {
+    *mc_creds.lock().unwrap() = Some(MinecraftAuthentication {
         access_token: minecraft_token.access_token,
         expires_in: minecraft_token.expires_in,
         refresh_token: ms_token.refresh_token,
@@ -129,7 +140,7 @@ fn launch_login(
             &config,
             format!("http://localhost:6879/{}", OAUTH_PATH).as_str(),
         )
-    ).map_err(|e| MicrosoftAuthenticationError::IOError(e))?;
+    ).map_err(|e| IOError(e))?;
 
     server.join().unwrap();
 
@@ -333,7 +344,6 @@ async fn get_minecraft_access_token(
         Err(XboxLiveResponseError("Server error, received non 200 response code.".to_string()))
     };
 }
-
 
 
 async fn get_minecraft_profile(

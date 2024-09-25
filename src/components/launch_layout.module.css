@@ -60,33 +60,6 @@
     max-height: calc(100vw - 100px);
 }
 
-#nav {
-    position: relative;
-    margin-bottom: 20px;
-}
-
-#nav .selector {
-    margin: 0 20px;
-    font-size: 20px;
-    text-decoration: none;
-    color: inherit;
-}
-
-#nav .selector:hover {
-    color: #c1452c;
-    cursor: pointer;
-}
-
-#nav.selector span:hover {
-}
-
-#nav_indicator {
-    position: absolute;
-    bottom: -10px;
-    height: 5px;
-    background-color: #ff6347;
-    transition: width 0.3s ease, left 0.3s ease;
-}
 
 #relogin {
     position: absolute;

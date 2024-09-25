@@ -1,9 +1,10 @@
 import styles from "./console.module.sass"
-import {Button} from "react-bootstrap";
+import {Alert, Button} from "react-bootstrap";
 import {emit, listen} from '@tauri-apps/api/event'
 import {ReactElement, useEffect, useRef, useState} from "react";
 import {invoke} from "@tauri-apps/api/tauri";
 import {useRouter} from "next/router";
+import {Alerts} from "@/pages/_app";
 
 export type ConsoleLine = {
     is_err: string,
@@ -42,30 +43,42 @@ const Console: React.FC = () => {
         }
     }, [lines])
 
-    return <>
-        <div id={styles.consoleHeader}>
-            <h1>Game output</h1>
-        </div>
-        <div id={styles.consoleContent} ref={consoleContentRef}>
-            {lines.map((line, index) =>
-                <span key={index} className={styles.consoleLine} style={{
-                    color: line.is_err ? "red" : "inherit"
-                }}>
+    return <Alerts.Consumer>
+        {addAlert =>
+            <>
+                <div id={styles.consoleHeader}>
+                    <h1>Game output</h1>
+                </div>
+                <div id={styles.consoleContent} ref={consoleContentRef}>
+                    {lines.map((line, index) =>
+                            <span key={index} className={styles.consoleLine} style={{
+                                color: line.is_err ? "red" : "inherit"
+                            }}>
                     {mapLine(String.fromCharCode(...line.frag))}
                 </span>
-            )}
-        </div>
-        <div id={styles.end}>
-            <Button
-                onClick={() => {
-                    invoke("end_launch_process").then(() => {
-                        router.push("/home")
-                    })
-                }}
-                variant={"outline-danger"}
-            >End Process</Button>
-        </div>
-    </>
+                    )}
+                </div>
+                <div id={styles.end}>
+                    <Button
+                        onClick={() => {
+                            router.push("/home")
+                            invoke("end_launch_process").then(() => {
+                            }).catch((it) => {
+                                addAlert(
+                                    "danger",
+                                    <>
+                                        <Alert.Heading>Error!</Alert.Heading>
+                                        <hr/>
+                                        {it.toString()}
+                                    </>
+                                )
+                            })
+                        }}
+                        variant={"outline-danger"}
+                    >End Process</Button>
+                </div>
+            </>
+        }</Alerts.Consumer>
 }
 
 export default Console

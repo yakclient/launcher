@@ -11,7 +11,7 @@ use tokio::io::AsyncReadExt;
 use crate::launch::client::get_client;
 use crate::launch::ClientError::{ClientNotRunning, ClientProcessError, IoError, NetworkError, Unauthenticated};
 use crate::launch::process::{capture_child, launch_process};
-use crate::state::{LaunchInstance, MinecraftAuthentication};
+use crate::state::{ExtensionState, LaunchInstance, MinecraftAuthentication};
 
 mod client;
 mod output;
@@ -55,24 +55,21 @@ impl Display for ClientError {
 #[tauri::command]
 pub async fn launch_minecraft(
     version: String,
-    mc_creds: State<'_, Arc<RwLock<Option<MinecraftAuthentication>>>>,
+    mc_creds: State<'_, Arc<Mutex<Option<MinecraftAuthentication>>>>,
     app_handle: AppHandle,
-    process: State<'_, RwLock<Option<LaunchInstance>>>,
+    process: State<'_, Arc<Mutex<Option<LaunchInstance>>>>,
+    extensions: State<'_, ExtensionState>
 ) -> Result<(), ClientError> {
-    if process.read().unwrap().is_some() { return Err(ClientError::ClientAlreadyRunning); }
+    if process.lock().unwrap().is_some() { return Err(ClientError::ClientAlreadyRunning); }
 
     let client_path = get_client(CLIENT_VERSION.to_string()).await.map_err(|e| NetworkError(e))?;
 
     println!("Launching Minecraft");
     // Fucked up rust syntax
-    let cred_lock = mc_creds.read().unwrap();
-    let result = if let Some(credentials) = cred_lock.deref() {
-        credentials
-    } else {
-        return Err(Unauthenticated);
-    };
+    let cred_lock = mc_creds.lock().unwrap();
+    let result = cred_lock.deref();
 
-    let child = launch_process(version, client_path, result)?;
+    let child = launch_process(version, client_path, result, &*extensions.lock().unwrap())?;
 
     let child = capture_child(child, app_handle);
 
@@ -80,23 +77,25 @@ pub async fn launch_minecraft(
         child,
     };
 
-    *process.write().unwrap() = Some(instance);
+    *process.lock().unwrap() = Some(instance);
 
     Ok(())
 }
 
 #[tauri::command]
 pub async fn end_launch_process(
-    process: State<'_, RwLock<Option<LaunchInstance>>>,
+    process: State<'_, Arc<Mutex<Option<LaunchInstance>>>>,
 ) -> Result<(), ClientError> {
-    println!("PROCESS IS: {}", process.read().unwrap().is_some());
-    if let Some(process) = process.read().unwrap().deref() {
+    let mut guard = process.lock().unwrap();
+
+    println!("PROCESS IS: {}", guard.is_some());
+    if let Some(process) = guard.deref() {
         process.shutdown()
     } else {
         return Err(ClientNotRunning)
     }
 
-    *process.write().unwrap() = None;
+    *guard = None;
 
     Ok(())
 }

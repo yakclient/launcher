@@ -9,36 +9,9 @@ import BackgroundGradient from "@/components/bg_gradient";
 import {invoke} from "@tauri-apps/api/tauri";
 import {Alerts} from "@/pages/_app";
 import {useRouter} from "next/router";
+import Nav from "@/components/nav";
 
-const NavBar: React.FC<{
-    elements: { name: string; }[],
-    onChange: (index: number) => void
-}> = ({elements, onChange}) => {
-    const [currIndex, setIndex] = useState(0);
 
-    return <div id={styles.nav}>
-        <Row>
-            {elements.map(({name}, index) => (
-                <Col className={`d-flex justify-content-center align-items-center ${styles.selector}`} onClick={() => {
-                    if (index != currIndex) onChange(index)
-                    setIndex(index)
-                }} key={index}>
-                    <span>
-                        {name}
-                    </span>
-                </Col>
-            ))}
-        </Row>
-
-        <div
-            id={styles.nav_indicator}
-            style={{
-                width: ((100 / (elements.length)) + "%"),
-                left: ((100 / (elements.length)) * currIndex) + "%"
-            }}
-        ></div>
-    </div>
-}
 
 const LaunchLayout: React.FC<{
     pages: { name: string; content: React.ReactNode; }[],
@@ -93,13 +66,13 @@ const LaunchLayout: React.FC<{
                                 onClick={() => {
                                     invoke("launch_minecraft", {
                                         version: version
-                                    }).catch(() => {
+                                    }).catch((it) => {
                                         alert(
                                             "danger",
                                             <>
                                                 <Alert.Heading>Client error</Alert.Heading>
                                                 <hr/>
-                                                A client error has occurred.
+                                                {it.toString()}
                                             </>
                                         )
                                     })
@@ -120,12 +93,11 @@ const LaunchLayout: React.FC<{
                                         setVersion(v)
                                     }}>{v}</Dropdown.Item>)
                                 }
-
                             </Dropdown.Menu>
                         </Dropdown>
                     </Container>
                     <div id={styles.layout}>
-                        <NavBar
+                        <Nav
                             elements={pages.map(({name}) => {
                                 return {
                                     name: name

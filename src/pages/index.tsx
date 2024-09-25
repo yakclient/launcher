@@ -29,6 +29,24 @@ const Login: React.FC = () => {
                         <h2>Login with Microsoft</h2>
                         <Button
                             as={"button"}
+                            onClick={() => {
+                                invoke("use_no_auth")
+                                    .then(() => {
+                                        addAlert(
+                                            "success",
+                                            <>
+                                                <Alert.Heading>Success!</Alert.Heading>
+                                                <hr/>
+                                                You&apos;ve been authenticated.
+                                            </>
+                                        )
+                                        router.push("/home")
+                                    })
+                            }}>
+                            Continue unauthenticated
+                        </Button>
+                        <Button
+                            as={"button"}
                             variant="success"
                             onClick={() => {
                                 invoke("microsoft_login")

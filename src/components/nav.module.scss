@@ -1,0 +1,26 @@
+#nav {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+#nav .selector {
+  margin: 0 20px;
+  font-size: inherit;
+  text-decoration: none;
+  color: inherit;
+}
+
+#nav .selector:hover {
+  color: #bfbfbf;
+  cursor: pointer;
+}
+
+#nav.selector span:hover {
+}
+
+#nav_indicator {
+  position: absolute;
+  bottom: -10px;
+  height: 5px;
+  transition: width 0.3s ease, left 0.3s ease;
+}
