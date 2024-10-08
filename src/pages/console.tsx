@@ -1,15 +1,10 @@
 import styles from "./console.module.sass"
 import {Alert, Button} from "react-bootstrap";
-import {emit, listen} from '@tauri-apps/api/event'
-import {ReactElement, useEffect, useRef, useState} from "react";
-import {invoke} from "@tauri-apps/api/tauri";
+import {useEffect, useRef, useState} from "react";
+import {invoke} from "@tauri-apps/api/core";
 import {useRouter} from "next/router";
-import {Alerts} from "@/pages/_app";
+import {Alerts, ConsoleChannel, ConsoleLine, useConsole} from "@/pages/_app";
 
-export type ConsoleLine = {
-    is_err: string,
-    frag: number[]
-}
 
 const Console: React.FC = () => {
     const [lines, setLines] = useState<ConsoleLine[]>([]);
@@ -30,12 +25,12 @@ const Console: React.FC = () => {
         </>
     }
 
-    useEffect(() => {
-        listen<ConsoleLine>('process-stdout', (event) => {
-            setLines((prev) => [...prev, event.payload])
-        }).then((it) => {
-        })
-    }, [])
+    const console = useConsole()
+
+    // @ts-ignore
+    console.channel.onmessage = (message) => {
+        setLines((prev) => [...prev, message])
+    }
 
     useEffect(() => {
         if (consoleContentRef.current) {
@@ -51,11 +46,9 @@ const Console: React.FC = () => {
                 </div>
                 <div id={styles.consoleContent} ref={consoleContentRef}>
                     {lines.map((line, index) =>
-                            <span key={index} className={styles.consoleLine} style={{
-                                color: line.is_err ? "red" : "inherit"
-                            }}>
-                    {mapLine(String.fromCharCode(...line.frag))}
-                </span>
+                        <span key={index} className={styles.consoleLine} style={{
+                            color: line.is_err ? "red" : "inherit"
+                        }}>{mapLine(String.fromCharCode(...line.frag))}</span>
                     )}
                 </div>
                 <div id={styles.end}>
@@ -78,7 +71,8 @@ const Console: React.FC = () => {
                     >End Process</Button>
                 </div>
             </>
-        }</Alerts.Consumer>
+        }
+    </Alerts.Consumer>
 }
 
 export default Console

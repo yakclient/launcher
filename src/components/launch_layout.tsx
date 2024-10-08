@@ -6,11 +6,10 @@ import styles from "./launch_layout.module.css"
 import React, {useState} from "react";
 import {Alert, Button, ButtonGroup, Col, Container, Dropdown, Row} from "react-bootstrap";
 import BackgroundGradient from "@/components/bg_gradient";
-import {invoke} from "@tauri-apps/api/tauri";
-import {Alerts} from "@/pages/_app";
+import {Channel, invoke} from "@tauri-apps/api/core";
+import {Alerts, ConsoleChannel, ConsoleLine, useConsole} from "@/pages/_app";
 import {useRouter} from "next/router";
 import Nav from "@/components/nav";
-
 
 
 const LaunchLayout: React.FC<{
@@ -20,6 +19,7 @@ const LaunchLayout: React.FC<{
     let [version, setVersion] = useState<string | null>(null)
 
     const router = useRouter();
+    const console = useConsole()
 
     const versions = [
         "1.21", "1.20", "1.19"
@@ -28,7 +28,6 @@ const LaunchLayout: React.FC<{
     return (
         <Alerts.Consumer>
             {alert =>
-
                 <div className={styles.main}>
                     <div
                         id={styles.relogin}
@@ -64,8 +63,11 @@ const LaunchLayout: React.FC<{
                                 disabled={version == null}
                                 variant="success"
                                 onClick={() => {
+                                    let channel = new Channel<ConsoleLine>();
+                                    console.setChannel(channel)
                                     invoke("launch_minecraft", {
-                                        version: version
+                                        version: version,
+                                        consoleChannel: channel
                                     }).catch((it) => {
                                         alert(
                                             "danger",
@@ -98,6 +100,8 @@ const LaunchLayout: React.FC<{
                     </Container>
                     <div id={styles.layout}>
                         <Nav
+                            color={"#ff6347"}
+                            fontSize={"20px"}
                             elements={pages.map(({name}) => {
                                 return {
                                     name: name
@@ -111,7 +115,6 @@ const LaunchLayout: React.FC<{
                     </div>
                 </div>
             }
-
         </Alerts.Consumer>
     );
 }

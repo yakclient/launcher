@@ -6,16 +6,19 @@ use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 
 use serde::{Serialize, Serializer};
 use tauri::{AppHandle, State};
+use tauri::ipc::Channel;
 use tokio::io::AsyncReadExt;
+use zip_extract::ZipExtractError;
 
 use crate::launch::client::get_client;
 use crate::launch::ClientError::{ClientNotRunning, ClientProcessError, IoError, NetworkError, Unauthenticated};
-use crate::launch::process::{capture_child, launch_process};
+use crate::launch::process::{capture_child, launch_process, ProcessStdoutEvent};
 use crate::state::{ExtensionState, LaunchInstance, MinecraftAuthentication};
 
 mod client;
 mod output;
 mod process;
+mod java;
 
 const CLIENT_VERSION: &'static str = "1.0-SNAPSHOT";
 
@@ -27,6 +30,7 @@ pub enum ClientError {
     Unauthenticated,
     ClientNotRunning,
     ClientAlreadyRunning,
+    ZipExtractError(ZipExtractError),
 }
 
 impl Serialize for ClientError {
@@ -47,6 +51,7 @@ impl Display for ClientError {
             Unauthenticated => { "You are not authenticated! Please login first.".into() }
             ClientNotRunning => "The client is not currently running".into(),
             ClientError::ClientAlreadyRunning => "The client is already running".into(),
+            ClientError::ZipExtractError(t) => t.to_string()
         };
         write!(f, "{}", str)
     }
@@ -56,22 +61,30 @@ impl Display for ClientError {
 pub async fn launch_minecraft(
     version: String,
     mc_creds: State<'_, Arc<Mutex<Option<MinecraftAuthentication>>>>,
-    app_handle: AppHandle,
     process: State<'_, Arc<Mutex<Option<LaunchInstance>>>>,
-    extensions: State<'_, ExtensionState>
+    extensions: State<'_, ExtensionState>,
+    console_channel: Channel<ProcessStdoutEvent>,
 ) -> Result<(), ClientError> {
     if process.lock().unwrap().is_some() { return Err(ClientError::ClientAlreadyRunning); }
 
     let client_path = get_client(CLIENT_VERSION.to_string()).await.map_err(|e| NetworkError(e))?;
 
     println!("Launching Minecraft");
-    // Fucked up rust syntax
     let cred_lock = mc_creds.lock().unwrap();
     let result = cred_lock.deref();
 
-    let child = launch_process(version, client_path, result, &*extensions.lock().unwrap())?;
+    let child = launch_process(
+        version,
+        client::extframework_dir().join("yakclient"),
+        client_path,
+        result,
+        &*extensions.lock().unwrap(),
+    )?;
 
-    let child = capture_child(child, app_handle);
+    let child = capture_child(
+        child,
+        console_channel,
+    );
 
     let instance = LaunchInstance {
         child,
@@ -92,7 +105,7 @@ pub async fn end_launch_process(
     if let Some(process) = guard.deref() {
         process.shutdown()
     } else {
-        return Err(ClientNotRunning)
+        return Err(ClientNotRunning);
     }
 
     *guard = None;

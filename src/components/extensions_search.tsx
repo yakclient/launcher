@@ -1,7 +1,7 @@
 import React, {useState} from "react";
 import {Alert, Button, Card, Form, InputGroup, ListGroup, Modal} from "react-bootstrap";
-import {Alerts} from "@/pages/_app";
-import {invoke} from "@tauri-apps/api/tauri";
+import {Alerts, useConsole} from "@/pages/_app";
+import {invoke} from "@tauri-apps/api/core";
 import {
     ExtensionMetadata,
     ExtensionPointer,
@@ -52,7 +52,7 @@ const queryServer = async (server: string, query: string, page: number = 0, pagi
         };
     }))
 
-    let appliedExtensions = new Set((await invoke("get_extension_state") as Extension[])
+    let appliedExtensions = new Set((await invoke("get_extension_state") as ExtensionPointer[])
         .map((t) => t.descriptor))
 
     return metadata
@@ -145,7 +145,6 @@ const ExtensionSearch: React.FC = () => {
                         <Form.Text muted>
                             Changes will take place on launch (installing, etc)
                         </Form.Text>
-
                     </form>
                     <Modal
                         show={modalOpen}

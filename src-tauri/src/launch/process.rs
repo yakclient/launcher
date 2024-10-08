@@ -6,38 +6,42 @@ use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri::ipc::Channel;
 
 use crate::launch::ClientError;
-use crate::launch::ClientError::IoError;
+use crate::launch::ClientError::{IoError, ZipExtractError};
+use crate::launch::java::get_java_command;
 use crate::state::{Extension, MinecraftAuthentication};
 
 #[derive(Clone, Serialize)]
-pub struct ProcessStdoutEvent<'a> {
+pub struct ProcessStdoutEvent {
     pub is_err: bool,
-    pub frag: &'a [u8],
+    pub frag: Vec<u8>,
 }
 
 fn add_env_args(command: &mut Command) -> &mut Command {
-    command.arg("-XstartOnFirstThread")
-        // .arg("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=32887")
+    #[cfg(target_os = "macos")] {
+        command
+            .arg("-XstartOnFirstThread");
+    }
+
+    command
         .arg("-jar")
 }
 
-struct ProcessStdEmitter<'a> {
-    handle_ref: &'a AppHandle,
+struct ProcessStdEmitter {
+    handle_ref: Channel<ProcessStdoutEvent>,
     is_err: bool,
 }
 
-impl<'a> Write for ProcessStdEmitter<'a> {
+impl<'a> Write for ProcessStdEmitter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         print!("{}", from_utf8(buf).unwrap());
-
-        self.handle_ref.emit_all(
-            "process-stdout",
+        self.handle_ref.send(
             ProcessStdoutEvent {
                 is_err: self.is_err,
-                frag: buf,
+                frag: Vec::from(buf),
             },
         ).unwrap();
 
@@ -51,11 +55,14 @@ impl<'a> Write for ProcessStdEmitter<'a> {
 
 pub fn launch_process(
     version: String,
+    java_dir: PathBuf,
     client_path: PathBuf,
     auth: &Option<MinecraftAuthentication>,
     extensions: &Vec<Extension>,
 ) -> Result<Child, ClientError> {
-    let mut command = Command::new("java");
+    let mut command = get_java_command(java_dir).map_err(|it| {
+        ZipExtractError(it)
+    })?;
     add_env_args(&mut command);
     command
         .arg(client_path.to_str().unwrap())
@@ -87,7 +94,7 @@ pub fn launch_process(
 
 pub fn capture_child(
     mut child: Child,
-    app: AppHandle,
+    channel: Channel<ProcessStdoutEvent>,
 ) -> Arc<Mutex<Child>> {
     // Moved into the spawned thread.
     let mut child_stdout = child.stdout.take().unwrap();
@@ -95,13 +102,14 @@ pub fn capture_child(
 
     let child = Arc::new(Mutex::new(child));
 
-    let clone = app.clone();
-    thread::spawn(move || {
-        let mut emitter = ProcessStdEmitter {
-            handle_ref: &clone,
-            is_err: false,
-        };
+    // let clone = app.clone();
+    let clone1 = channel.clone();
+    let mut emitter = ProcessStdEmitter {
+        handle_ref: clone1,
+        is_err: false,
+    };
 
+    thread::spawn(move || {
         loop {
             let mut buffer: [u8; 64] = [0; 64];
             // println!("Looping");
@@ -115,23 +123,23 @@ pub fn capture_child(
         }
     });
 
-    let clone = app.clone();
-    thread::spawn(move || {
-        let mut emitter = ProcessStdEmitter {
-            handle_ref: &clone,
-            is_err: true,
-        };
-
-        loop {
-            let mut buffer: [u8; 64] = [0; 64];
-            if let Ok(length) = child_stderr.read(&mut buffer) {
-                if length == 0 {
-                    break;
-                }
-                emitter.write(&buffer[0..length]).unwrap();
-            }
-        }
-    });
+    // let clone = app.clone();
+    // thread::spawn(move || {
+    //     let mut emitter = ProcessStdEmitter {
+    //         handle_ref: &clone,
+    //         is_err: true,
+    //     };
+    //
+    //     loop {
+    //         let mut buffer: [u8; 64] = [0; 64];
+    //         if let Ok(length) = child_stderr.read(&mut buffer) {
+    //             if length == 0 {
+    //                 break;
+    //             }
+    //             emitter.write(&buffer[0..length]).unwrap();
+    //         }
+    //     }
+    // });
 
     child
 }

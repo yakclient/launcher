@@ -1,8 +1,8 @@
 import React, {useEffect, useState} from "react";
-import {invoke} from "@tauri-apps/api/tauri";
+import {invoke} from "@tauri-apps/api/core";
 import {ExtensionMetadata, ExtensionPointer, ExtensionState, WrappedExtension} from "@/types";
-import {Card} from "react-bootstrap";
 import ExtensionCard from "@/components/extension_card";
+import metadata from "next/dist/server/typescript/rules/metadata";
 
 const Installed: React.FC = () => {
     let [extensions, setExtensions] = useState<{
@@ -41,9 +41,15 @@ const Installed: React.FC = () => {
     }, [])
 
     return <>
-        {extensions.map((extension: WrappedExtension, index) => {
+        {extensions.map((extension, index) => {
             return <ExtensionCard
-                extension={extension}
+                extension={
+                    {
+                        metadata: extension.metadata,
+                        pointer: extension.pointer,
+                        state: ExtensionState.Enabled
+                    } as WrappedExtension
+                }
                 onclick={async (state) => {
                     let currExtensions = await invoke("get_extension_state") as ExtensionPointer[];
 

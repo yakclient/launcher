@@ -9,8 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@tauri-apps/api": "^1.6.0",
-    "@tauri-apps/cli": "^1.6.1",
+    "@tauri-apps/api": "^2.0.1",
+    "@tauri-apps/cli": "^2.0.1",
     "bootstrap": "^5.3.3",
     "next": "14.2.6",
     "react": "^18",

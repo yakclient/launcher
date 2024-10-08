@@ -1,6 +1,6 @@
 import React, {useState} from "react";
 import {Button, Card} from "react-bootstrap";
-import {invoke} from "@tauri-apps/api/tauri";
+import {invoke} from "@tauri-apps/api/core";
 import {ExtensionMetadata, ExtensionPointer, ExtensionState, WrappedExtension} from "@/types";
 
 const ExtensionButton: React.FC<{

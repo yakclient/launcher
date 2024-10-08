@@ -7,8 +7,7 @@ const Nav: React.FC<{
     elements: { name: string; }[],
     onChange: (index: number) => void,
     color: string,
-    fontSize: number,
-
+    fontSize: string
 }> = ({elements, onChange, color, fontSize}) => {
     const [currIndex, setIndex] = useState(0);
     return <div id={styles.nav}

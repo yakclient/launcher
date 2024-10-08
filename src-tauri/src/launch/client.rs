@@ -2,19 +2,18 @@ use std::fs::File;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-fn extframework_dir() -> PathBuf {
+pub fn extframework_dir() -> PathBuf {
     home::home_dir().unwrap()
         .join(".extframework")
 }
 
-// TODO This is wrong
-fn client_url(version: String) -> &'static str {
-    "https://maven.extframework.dev/snapshots/dev/extframework/client/2.1.1-SNAPSHOT/client-2.1.1-20240908.175507-1-all.jar"
+fn client_url(version: String) -> String {
+   format!("https://static.extframework.dev/client/yak-client-{}.jar", version)
 }
 
 pub async fn get_client(version: String) -> reqwest::Result<PathBuf> {
     let path = extframework_dir()
-        .join(format!("client-{}.jar", version));
+        .join(format!("yak-client-{}.jar", version));
 
     if !Path::new(path.as_os_str()).exists() {
         println!("Downloading client");
@@ -39,10 +38,10 @@ async fn download_client(
 
 #[cfg(test)]
 mod tests {
-    use crate::launch::client::download_client;
+    use crate::launch::client::get_client;
 
-    // #[test]
-    // fn test_client_download() {
-    //     download_client("doesnt matter".to_string()).unwrap()
-    // }
+    #[tokio::test]
+    async fn test_client_download() {
+        get_client("1.0-SNAPSHOT".to_string()).await.unwrap();
+    }
 }
