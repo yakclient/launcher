@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use reqwest::Error;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
@@ -12,6 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tauri::State;
 use url::form_urlencoded;
+
 use MicrosoftAuthenticationError::{IOError, ServerError};
 
 use crate::oauth::MicrosoftAuthenticationError::{MalformedOAuthRequest, MsError, NetworkError, XboxLiveResponseError};

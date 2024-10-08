@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{create_dir_all, File};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
@@ -28,6 +28,8 @@ async fn download_client(
 ) -> reqwest::Result<()> {
     let client_url = client_url(version);
     let response = reqwest::get(client_url).await?;
+
+    create_dir_all(path.parent().unwrap()).expect("Failed to create client dir path");
     let mut client_file = File::create(path).expect("Failed to open client.jar file");
     let mut content =  Cursor::new(response.bytes().await?);
 
