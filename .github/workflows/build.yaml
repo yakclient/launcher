@@ -2,7 +2,7 @@ name: build
 on:
   workflow_dispatch:
   push:
-    branches: [ dev ]
+    branches: [ main ]
 jobs:
   build-macos:
     runs-on: macos-latest
