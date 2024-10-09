@@ -44,7 +44,9 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: true
           body: Updates made
-          files: src-tauri/target/release/bundle/macos/YakClient.app
+          files: |
+#            src-tauri/target/release/bundle/macos/YakClient.app
+            src-tauri/target/release/bundle/macos/rw.YakClient_1.0.8_aarch64.dmg
   build-windows:
     runs-on: windows-latest
     steps:
@@ -81,4 +83,4 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: true
           body: Updates made
-          files: src-tauri/target/release/bundle/msi/YakClient_1.0.7_x64_en-US.msi
+          files: src-tauri/target/release/bundle/msi/YakClient_1.0.8_x64_en-US.msi
