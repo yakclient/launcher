@@ -27,8 +27,7 @@ const Console: React.FC = () => {
 
     const console = useConsole()
 
-    // @ts-ignore
-    console.channel.onmessage = (message) => {
+    if (console.channel) console.channel.onmessage = (message) => {
         setLines((prev) => [...prev, message])
     }
 

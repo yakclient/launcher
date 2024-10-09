@@ -20,9 +20,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Cargo install
+      - name: Setup Tauri CLI
         working-directory: ./src-tauri
-        run: cargo install | cargo install tauri-cli --version "^2.0.0" --locked
+        run: cargo install tauri-cli --version "^2.0.0" --locked
+        uses: Swatinem/rust-cache@v2
       - name: Build app
         working-directory: ./src-tauri
         run: cargo tauri build --bundles app
