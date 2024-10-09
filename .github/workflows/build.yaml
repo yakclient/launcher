@@ -38,15 +38,13 @@ jobs:
         run: cargo tauri build --bundles app
       - name: Release
         uses: softprops/action-gh-release@v2
-#        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
           body: Updates made
-          files: |
-#            src-tauri/target/release/bundle/macos/YakClient.app
-            src-tauri/target/release/bundle/macos/rw.YakClient_1.0.9_aarch64.dmg
+          files: src-tauri/target/release/bundle/macos/rw.YakClient_1.0.10_aarch64.dmg
   build-windows:
     runs-on: windows-latest
     steps:
@@ -77,10 +75,10 @@ jobs:
         run: cargo tauri build
       - name: Release
         uses: softprops/action-gh-release@v2
-#        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
           body: Updates made
-          files: src-tauri/target/release/bundle/msi/YakClient_1.0.9_x64_en-US.msi
+          files: src-tauri/target/release/bundle/msi/YakClient_1.0.10_x64_en-US.msi
