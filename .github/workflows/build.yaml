@@ -35,7 +35,9 @@ jobs:
         run: npm install next-cli
       - name: Build app
         working-directory: ./src-tauri
-        run: cargo tauri build --bundles app
+        run: cargo tauri build --bundles dmg
+      - run: ls
+        working-directory: src-tauri/target/release/bundle/dmg
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
@@ -44,7 +46,7 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: true
           body: Updates made
-          files: src-tauri/target/release/bundle/macos/rw.YakClient_1.0.10_aarch64.dmg
+          files: src-tauri/target/release/bundle/dmg/rw.YakClient_1.0.11_aarch64.dmg
   build-windows:
     runs-on: windows-latest
     steps:
@@ -81,4 +83,4 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: true
           body: Updates made
-          files: src-tauri/target/release/bundle/msi/YakClient_1.0.10_x64_en-US.msi
+          files: src-tauri/target/release/bundle/msi/YakClient_1.0.11_x64_en-US.msi
