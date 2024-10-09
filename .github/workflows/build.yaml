@@ -32,25 +32,15 @@ jobs:
       - name: Build app
         working-directory: ./src-tauri
         run: cargo tauri build --bundles app
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
           draft: false
           prerelease: false
-      - name: Upload Artifact to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./src-tauri/target/release/bundle/macos/YakClient.app
-          asset_name: macos_app
-          asset_content_type: application/octet-stream
+          fail_on_unmatched_files: true
+          body: Updates made
+          files: ./src-tauri/target/release/bundle/macos/YakClient.app
   build-windows:
     runs-on: windows-latest
     steps:
@@ -79,23 +69,12 @@ jobs:
       - name: Build app
         working-directory: ./src-tauri
         run: cargo tauri build
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
           draft: false
           prerelease: false
-          body: Latest release
-      - name: Upload Artifact to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./src-tauri/target/release/bundle/msi/YakClient_${{ github.ref }}_arm64_en-US.msi
-          asset_name: windows_installer
-          asset_content_type: application/octet-stream
+          fail_on_unmatched_files: true
+          body: Updates made
+          files: ./src-tauri/target/release/bundle/msi/YakClient_1.0.3_arm64_en-US.msi
