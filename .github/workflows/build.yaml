@@ -20,6 +20,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Cargo install
+        working-directory: ./src-tauri
+        run: cargo install | cargo install tauri-cli --version "^2.0.0" --locked
       - name: Build app
         working-directory: ./src-tauri
         run: cargo tauri build --bundles app
