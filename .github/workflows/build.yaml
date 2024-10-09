@@ -3,6 +3,10 @@ on:
   push:
     tags:
       - 'v*.*.*'
+
+permissions:
+  contents: write
+
 jobs:
   build-macos:
     runs-on: macos-latest
@@ -77,4 +81,4 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: true
           body: Updates made
-          files: ./src-tauri/target/release/bundle/msi/YakClient_1.0.4_arm64_en-US.msi
+          files: ./src-tauri/target/release/bundle/msi/YakClient_1.0.5_arm64_en-US.msi
