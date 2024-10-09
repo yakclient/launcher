@@ -1,8 +1,8 @@
 name: build
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+    tags:
+      - 'v*.*.*'
 jobs:
   build-macos:
     runs-on: macos-latest
@@ -23,6 +23,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri"
+          shared-key: "macos_build"
       - name: Setup Tauri CLI
         working-directory: ./src-tauri
         run: cargo install tauri-cli --version "^2.0.0" --locked
@@ -31,10 +32,18 @@ jobs:
       - name: Build app
         working-directory: ./src-tauri
         run: cargo tauri build --bundles app
-#      - name: Create Release
-#        uses: actions/create-release@v1
-#        with:
-#          tag_name: ${{ github.ref }}
-#          release_name: Release ${{ github.ref }}
-#          draft: false
-#          prerelease: false
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+      - name: Upload Artifact to Release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./src-tauri/target/release/bundle/macos/YakClient.app
+          asset_name: macos_app
+          asset_content_type: application/octet-stream
