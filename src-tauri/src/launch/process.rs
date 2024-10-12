@@ -1,13 +1,13 @@
 use std::{io, thread};
-use std::io::{Read, stderr, stdout, Write};
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
 use tauri::ipc::Channel;
+use tauri::Manager;
 
 use crate::launch::ClientError;
 use crate::launch::ClientError::{IoError, ZipExtractError};
@@ -102,9 +102,8 @@ pub fn capture_child(
 
     let child = Arc::new(Mutex::new(child));
 
-    // let clone = app.clone();
     let clone1 = channel.clone();
-    let mut emitter = ProcessStdEmitter {
+    let mut emitter1 = ProcessStdEmitter {
         handle_ref: clone1,
         is_err: false,
     };
@@ -118,28 +117,30 @@ pub fn capture_child(
                     break;
                 }
 
-                emitter.write(&buffer[0..length]).unwrap();
+                emitter1.write(&buffer[0..length]).unwrap();
             }
         }
     });
 
-    // let clone = app.clone();
-    // thread::spawn(move || {
-    //     let mut emitter = ProcessStdEmitter {
-    //         handle_ref: &clone,
-    //         is_err: true,
-    //     };
-    //
-    //     loop {
-    //         let mut buffer: [u8; 64] = [0; 64];
-    //         if let Ok(length) = child_stderr.read(&mut buffer) {
-    //             if length == 0 {
-    //                 break;
-    //             }
-    //             emitter.write(&buffer[0..length]).unwrap();
-    //         }
-    //     }
-    // });
+    let clone2 = channel.clone();
+    let mut emitter2 = ProcessStdEmitter {
+        handle_ref: clone2,
+        is_err: true,
+    };
+
+    thread::spawn(move || {
+        loop {
+            let mut buffer: [u8; 64] = [0; 64];
+            // println!("Looping");
+            if let Ok(length) = child_stderr.read(&mut buffer) {
+                if length == 0 {
+                    break;
+                }
+
+                emitter2.write(&buffer[0..length]).unwrap();
+            }
+        }
+    });
 
     child
 }

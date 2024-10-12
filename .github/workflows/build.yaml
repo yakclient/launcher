@@ -36,8 +36,6 @@ jobs:
       - name: Build app
         working-directory: ./src-tauri
         run: cargo tauri build --bundles dmg
-      - run: ls
-        working-directory: src-tauri/target/release/bundle/dmg
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
