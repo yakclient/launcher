@@ -71,7 +71,7 @@ jobs:
           args: ${{ matrix.args }}
 
   build-windows:
-    runs-on: macos-latest
+    runs-on: windows-latest
     environment: release
     steps:
       - uses: actions/checkout@v3
