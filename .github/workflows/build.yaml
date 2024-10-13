@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   build-macos:
+    environment: release
     strategy:
       matrix:
         include:
@@ -32,7 +33,9 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
       - name: Setup Next CLi
-        run: npm install next-cli
+        run: |
+          npm install next-cli
+          npm install
       - name: Import Apple Developer Certificate
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -66,9 +69,9 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-
   build-windows:
     runs-on: macos-latest
+    environment: release
     steps:
       - uses: actions/checkout@v3
       - name: Setting up Java 21
@@ -83,7 +86,9 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
       - name: Setup Next CLi
-        run: npm install next-cli
+        run: |
+          npm install next-cli
+          npm install
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
