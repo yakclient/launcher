@@ -34,9 +34,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Setup CLIs
         run: |
-          npm install
+          npm install next-cli
           cd src-tauri
-          cargo install --path .
+          cargo install tauri-cli --version "^2.0.0" --locked
       - name: Import Apple Developer Certificate
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -88,9 +88,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Setup CLIs
         run: |
-          npm install
+          npm install next-cli
           cd src-tauri
-          cargo install --path .
+          cargo install tauri-cli --version "^2.0.0" --locked
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
