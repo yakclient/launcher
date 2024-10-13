@@ -9,76 +9,87 @@ permissions:
 
 jobs:
   build-macos:
+    strategy:
+      matrix:
+        include:
+          - args: '--target aarch64-apple-darwin'
+            arch: 'silicon'
+    runs-on: macos-latest
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setting up Java 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Next CLi
+        run: npm install next-cli
+      - name: Import Apple Developer Certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security find-identity -v -p codesigning build.keychain
+      - name: Verify Certificate
+        run: |
+          CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Apple Development")
+          CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+          echo "CERT_ID=$CERT_ID" >> $GITHUB_ENV
+          echo "Certificate imported."
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.CERT_ID }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: 'YakClient Launcher v__VERSION__'
+          releaseBody: 'Updates made'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+
+  build-windows:
     runs-on: macos-latest
     steps:
-      - name: Cloning Repo
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
       - name: Setting up Java 21
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 21
-      - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
       - name: Setup node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri"
-          shared-key: "macos_build"
-      - name: Setup Tauri CLI
-        working-directory: ./src-tauri
-        run: cargo install tauri-cli --version "^2.0.0" --locked
-      - name: Setup Next CLi
-        run: npm install next-cli
-      - name: Build app
-        working-directory: ./src-tauri
-        run: cargo tauri build --bundles dmg
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: true
-          body: Updates made
-          files: src-tauri/target/release/bundle/dmg/YakClient_1.0.13_aarch64.dmg
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Cloning Repo
-        uses: actions/checkout@v3
-      - name: Setting up Java 21
-        uses: actions/setup-java@v3
-        with:
-          distribution: temurin
-          java-version: 21
-      - name: Setup rust toolchain
+      - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri"
-          shared-key: "windows_build"
-      - name: Setup Tauri CLI
-        working-directory: ./src-tauri
-        run: cargo install tauri-cli --version "^2.0.0" --locked
       - name: Setup Next CLi
         run: npm install next-cli
-      - name: Build app
-        working-directory: ./src-tauri
-        run: cargo tauri build
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          draft: false
+          tagName: app-v__VERSION__
+          releaseName: 'YakClient Launcher v__VERSION__'
+          releaseBody: 'Updates made'
+          releaseDraft: true
           prerelease: false
-          fail_on_unmatched_files: true
-          body: Updates made
-          files: src-tauri/target/release/bundle/msi/YakClient_1.0.13_x64_en-US.msi
