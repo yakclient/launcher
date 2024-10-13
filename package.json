@@ -1,13 +1,13 @@
 {
   "name": "yakclient-launcher",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "tauri": "cd src-tauri; cargo tauri"
+    "tauri": "cd src-tauri && cargo tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.1",
