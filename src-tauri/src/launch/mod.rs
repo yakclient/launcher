@@ -16,11 +16,10 @@ use crate::launch::process::{capture_child, launch_process, ProcessStdoutEvent};
 use crate::state::{ExtensionState, LaunchInstance, MinecraftAuthentication};
 
 mod client;
-mod output;
 mod process;
 mod java;
 
-const CLIENT_VERSION: &'static str = "1.0-SNAPSHOT";
+const CLIENT_VERSION: &'static str = "1.0.1-BETA";
 
 #[derive(Debug)]
 pub enum ClientError {

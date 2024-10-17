@@ -66,7 +66,7 @@ pub fn launch_process(
     add_env_args(&mut command);
     command
         .arg(client_path.to_str().unwrap())
-        .arg(format!("--version={}", version));
+        .arg(format!("--version=extframework-{}", version));
 
     if let Some(auth) = auth {
         command.arg(format!("--accessToken={}", auth.access_token))
