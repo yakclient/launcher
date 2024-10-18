@@ -15,7 +15,7 @@ pub fn extframework_dir() -> PathBuf {
     };
 
     return path
-        .join(".minecraft")
+        .join("minecraft")
         .join(".extframework");
 }
 

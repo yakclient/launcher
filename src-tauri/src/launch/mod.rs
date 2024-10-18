@@ -19,7 +19,7 @@ mod client;
 mod process;
 mod java;
 
-const CLIENT_VERSION: &'static str = "1.0.1-BETA";
+const CLIENT_VERSION: &'static str = "1.0.3-BETA";
 
 #[derive(Debug)]
 pub enum ClientError {
