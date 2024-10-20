@@ -5,18 +5,22 @@ use std::path::{Path, PathBuf};
 
 pub fn extframework_dir() -> PathBuf {
     let path = if cfg!(target_os = "windows") {
-        PathBuf::from(env::var("APP_DATA").unwrap())
+        env::var("APPDATA")
+            .map(|it| PathBuf::from(it))
+            .unwrap_or_else(|_| {
+                let home = home::home_dir().unwrap();
+                home.join("AppData").join("Roaming")
+            }).join(".minecraft")
     } else if cfg!(target_os = "macos") {
         home::home_dir().unwrap()
             .join("Library")
             .join("Application Support")
+            .join("minecraft")
     } else {
-        home::home_dir().unwrap()
+        home::home_dir().unwrap().join(".minecraft")
     };
 
-    return path
-        .join("minecraft")
-        .join(".extframework");
+    return path.join(".extframework");
 }
 
 fn client_url(version: String) -> String {
