@@ -1,5 +1,5 @@
 import styles from "./index.module.sass"
-import bg_png from "../public/icons/login_bg.png"
+import bg_png from "../../public/icons/login_bg.png"
 import Image from "next/image";
 import {Alert, Button} from "react-bootstrap";
 import {invoke} from "@tauri-apps/api/core";

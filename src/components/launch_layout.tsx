@@ -1,10 +1,10 @@
 'use client'
 
 import Image from "next/image";
-import mc_png from "../public/icons/mc_png.png"
+import mc_png from "../../public/icons/mc_png.png"
 import styles from "./launch_layout.module.css"
 import React, {useState} from "react";
-import {Alert, Button, ButtonGroup, Col, Container, Dropdown, Row} from "react-bootstrap";
+import {Alert, Badge, Button, ButtonGroup, Col, Container, Dropdown, Row} from "react-bootstrap";
 import BackgroundGradient from "@/components/bg_gradient";
 import {Channel, invoke} from "@tauri-apps/api/core";
 import {Alerts, ConsoleChannel, ConsoleLine, useConsole} from "@/pages/_app";
@@ -44,7 +44,7 @@ const LaunchLayout: React.FC<{
                     <Image
                         src={mc_png}
                         alt={"Alt pic"}
-                        width={500}
+                        // width={500}
                         height={281}
                         className={styles.title_image}
                     />

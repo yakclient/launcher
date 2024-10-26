@@ -12,6 +12,7 @@ import {
 } from "@/types";
 import ExtensionCard from "@/components/extension_card";
 import {app} from "@tauri-apps/api";
+import SkeletonExtensionCard from "@/components/skeleton_extension_card";
 
 
 const queryServer = async (server: string, query: string, page: number = 0, pagination: number = 20): Promise<WrappedExtension[]> => {
@@ -73,9 +74,12 @@ const ExtensionSearch: React.FC = () => {
     ])
     const [modalOpen, setModalOpen] = useState(false);
     const [repositoryInputTarget, setRepositoryInputTarget] = useState("");
+    const [queryingServer, setQueryingServer] = useState(false)
 
     let setupExtensions = (): React.ReactNode => {
-        if (extensions.length == 0) {
+        if (queryingServer) {
+            return <SkeletonExtensionCard/>
+        } else if (extensions.length == 0) {
             return <div style={{
                 margin: "20px 0"
             }}>Nothing found</div>
@@ -112,24 +116,25 @@ const ExtensionSearch: React.FC = () => {
                 <>
                     <form onSubmit={(it) => {
                         it.preventDefault()
-
+                        setQueryingServer(true)
                         Promise.all(repositories.map((repo) => {
                             return queryServer(repo, searchTarget)
-                        }))
-                            .then((res) => {
-                                let flatMap = res.flatMap((it) => it)
-                                setExtensions(flatMap)
-                            })
-                            .catch((res) => {
-                            addAlert(
-                                "danger",
-                                <>
-                                    <Alert.Heading>Failed to search!</Alert.Heading>
-                                    <hr/>
-                                    {res.toString()}
-                                </>
-                            )
+                        })).then((res) => {
+                            setQueryingServer(false)
+                            let flatMap = res.flatMap((it) => it)
+                            setExtensions(flatMap)
                         })
+                            .catch((res) => {
+                                setQueryingServer(false)
+                                addAlert(
+                                    "danger",
+                                    <>
+                                        <Alert.Heading>Failed to search!</Alert.Heading>
+                                        <hr/>
+                                        {res.toString()}
+                                    </>
+                                )
+                            })
                     }}>
                         <Form.Label>Search</Form.Label>
                         <InputGroup className="mb-3">
@@ -158,7 +163,8 @@ const ExtensionSearch: React.FC = () => {
                             <ListGroup as="ul">
                                 {
                                     repositories.map((it, i) => {
-                                        return <ListGroup.Item key={i} className="d-flex justify-content-between align-items-center">
+                                        return <ListGroup.Item key={i}
+                                                               className="d-flex justify-content-between align-items-center">
                                             {it}
                                             <Button variant="danger" size="sm" onClick={() => {
                                                 setRepositories((prev) =>
@@ -172,7 +178,7 @@ const ExtensionSearch: React.FC = () => {
                             <InputGroup className="mb-3" style={{
                                 margin: "10px 0"
                             }}>
-                                <Form.Control  value={repositoryInputTarget} onChange={(it) => {
+                                <Form.Control value={repositoryInputTarget} onChange={(it) => {
                                     setRepositoryInputTarget(it.target.value)
                                 }}/>
                                 <Button variant="outline-success" id="button-addon1" onClick={() => {

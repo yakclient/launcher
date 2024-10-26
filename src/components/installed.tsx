@@ -3,8 +3,10 @@ import {invoke} from "@tauri-apps/api/core";
 import {ExtensionMetadata, ExtensionPointer, ExtensionState, WrappedExtension} from "@/types";
 import ExtensionCard from "@/components/extension_card";
 import metadata from "next/dist/server/typescript/rules/metadata";
+import SkeletonExtensionCard from "@/components/skeleton_extension_card";
 
 const Installed: React.FC = () => {
+    const [queryingServer, setQueryingServer] = useState(false)
     let [extensions, setExtensions] = useState<{
         metadata: ExtensionMetadata,
         pointer: ExtensionPointer
@@ -12,8 +14,8 @@ const Installed: React.FC = () => {
 
     let setupExtensions = async () => {
         let appliedExtensions = await invoke("get_extension_state") as ExtensionPointer[]
-        console.log(appliedExtensions)
 
+        setQueryingServer(true)
         let extension_metadata = await Promise.all(appliedExtensions.map(async (pointer) => {
             let [group, name, version] = pointer.descriptor.split(":")
 
@@ -30,19 +32,22 @@ const Installed: React.FC = () => {
                 pointer: pointer
             } as WrappedExtension;
         }))
+        setQueryingServer(false)
 
         setExtensions(extension_metadata)
     }
 
     useEffect(() => {
-       setupExtensions().then(() => {
-           // Nothing
-       })
+        setupExtensions().then(() => {
+            // Nothing
+        })
     }, [])
 
-    return <>
-        {extensions.map((extension, index) => {
-            return <ExtensionCard
+    let getExtensionCards = () => {
+        if (queryingServer) {
+            return <SkeletonExtensionCard/>
+        } else return extensions.map((extension, index) =>
+           <ExtensionCard
                 extension={
                     {
                         metadata: extension.metadata,
@@ -67,8 +72,10 @@ const Installed: React.FC = () => {
                 }}
                 key={index}
             />
-        })}
-    </>
+        )
+    }
+
+    return getExtensionCards()
 }
 
 export default Installed;

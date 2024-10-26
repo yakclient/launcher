@@ -1,7 +1,8 @@
 import React, {useState} from "react";
-import {Button, Card} from "react-bootstrap";
-import {invoke} from "@tauri-apps/api/core";
-import {ExtensionMetadata, ExtensionPointer, ExtensionState, WrappedExtension} from "@/types";
+import {Badge, Button, Card, Stack} from "react-bootstrap";
+import {ExtensionState, WrappedExtension} from "@/types";
+import defaultExtensionImg from "../../public/icons/extension_icon.png"
+import Image from "next/image";
 
 const ExtensionButton: React.FC<{
     state: ExtensionState,
@@ -27,24 +28,41 @@ const ExtensionCard: React.FC<{
     onclick: (state: ExtensionState) => void,
     extension: WrappedExtension
 }> = ({
-         onclick, extension
-}) => {
+          onclick, extension
+      }) => {
     let [state, setState] = useState(extension.state)
+
+    const maxDescLength = 200
+
+    let description = extension.metadata.description
+    if (description.length > maxDescLength) {
+        description = description.substring(0, maxDescLength - 3) + "..."
+    }
 
     return <Card style={{
         margin: "10px 0",
-        maxHeight: "200px",
+        // maxHeight: "200px",
     }} className="flex-row">
-        <Card.Img
-            variant="left"
-            src={extension.metadata.icon ?? ""}
-            height={"200px"}
+        <Image
+            alt={"OK?"}
+            src={extension.metadata.icon ?? defaultExtensionImg}
+            height={200}
         />
+
         <Card.Body style={{padding: "10px"}}>
-            <Card.Title as="h4" className="h5 h4-sm">
+            <Card.Title as="h1" className="h1 h1-sm">
                 {extension.metadata.name}
             </Card.Title>
-            <Card.Text>{extension.metadata.description}</Card.Text>
+            <Card.Text>
+                {extension.metadata.developers.join(", ")}
+                <Badge pill bg="secondary" style={{
+                    marginLeft: "10px"
+                }}>
+                    v{extension.pointer.descriptor.split(":")[2]}
+                </Badge>
+            </Card.Text>
+
+            <Card.Text>{description}</Card.Text>
             <ExtensionButton state={state} onclick={(newState) => {
                 setState(newState)
                 onclick(newState)

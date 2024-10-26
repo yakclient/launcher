@@ -27,6 +27,7 @@ const News: React.FC = () => {
                     <Card.Img
                         variant="left"
                         src={article.image}
+                        height={200}
                     />
                     <Card.Body>
                         <Card.Title as="h4" className="h5 h4-sm">
