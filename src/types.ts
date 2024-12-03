@@ -42,7 +42,12 @@ export type SearchResult = {
     ]
 }
 
+export enum RepositoryType {
+    REMOTE, LOCAL
+}
+
 export type ExtensionPointer = {
     descriptor: string,
-    repository: string
+    repository: string,
+    repository_type: RepositoryType
 }

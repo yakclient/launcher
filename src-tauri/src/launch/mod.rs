@@ -1,25 +1,28 @@
+use crate::launch::client::get_client;
+use crate::launch::java::JreSetupError;
+use crate::launch::process::{capture_child, launch_process, ProcessStdoutEvent};
+use crate::launch::ClientError::{ClientNotRunning, ClientProcessError, IoError, ModExtError, NetworkError, Unauthenticated};
+use crate::persist::PersistedData;
+use crate::state::{Extension, LaunchInstance, MinecraftAuthentication, Mod};
+use crate::yakclient_dir;
+use serde::{Serialize, Serializer};
 use std::fmt::{Display, Formatter};
+use std::fs::create_dir_all;
 use std::io;
 use std::io::{Read, Write};
 use std::ops::Deref;
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
-
-use serde::{Serialize, Serializer};
-use tauri::{AppHandle, State};
+use std::sync::Arc;
 use tauri::ipc::Channel;
+use tauri::State;
 use tokio::io::AsyncReadExt;
-use zip_extract::ZipExtractError;
-
-use crate::launch::client::get_client;
-use crate::launch::ClientError::{ClientNotRunning, ClientProcessError, IoError, NetworkError, Unauthenticated};
-use crate::launch::process::{capture_child, launch_process, ProcessStdoutEvent};
-use crate::state::{ExtensionState, LaunchInstance, MinecraftAuthentication};
+use tokio::sync::Mutex;
+use crate::mods::{generate_mod_extension, ModExtGenerationError};
 
 mod client;
 mod process;
 mod java;
 
-const CLIENT_VERSION: &'static str = "1.0.5-BETA";
+const CLIENT_VERSION: &'static str = "1.0.11-BETA";
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -29,7 +32,8 @@ pub enum ClientError {
     Unauthenticated,
     ClientNotRunning,
     ClientAlreadyRunning,
-    ZipExtractError(ZipExtractError),
+    JreInstallError(JreSetupError),
+    ModExtError(ModExtGenerationError)
 }
 
 impl Serialize for ClientError {
@@ -46,11 +50,12 @@ impl Display for ClientError {
         let str = match self {
             NetworkError(e) => { e.to_string() }
             IoError(e) => { e.to_string() }
-            ClientError::ClientProcessError(s) => { s.clone() }
+            ClientProcessError(s) => { s.clone() }
             Unauthenticated => { "You are not authenticated! Please login first.".into() }
             ClientNotRunning => "The client is not currently running".into(),
             ClientError::ClientAlreadyRunning => "The client is already running".into(),
-            ClientError::ZipExtractError(t) => t.to_string()
+            ClientError::JreInstallError(t) => t.to_string(),
+            ClientError::ModExtError(t) => t.to_string()
         };
         write!(f, "{}", str)
     }
@@ -59,26 +64,39 @@ impl Display for ClientError {
 #[tauri::command]
 pub async fn launch_minecraft(
     version: String,
-    mc_creds: State<'_, Arc<Mutex<Option<MinecraftAuthentication>>>>,
     process: State<'_, Arc<Mutex<Option<LaunchInstance>>>>,
-    extensions: State<'_, ExtensionState>,
+    persisted_data: State<'_, PersistedData>,
     console_channel: Channel<ProcessStdoutEvent>,
 ) -> Result<(), ClientError> {
-    if process.lock().unwrap().is_some() { return Err(ClientError::ClientAlreadyRunning); }
+    if process.lock().await.is_some() { return Err(ClientError::ClientAlreadyRunning); }
 
     let client_path = get_client(CLIENT_VERSION.to_string()).await.map_err(|e| NetworkError(e))?;
 
     println!("Launching Minecraft");
-    let cred_lock = mc_creds.lock().unwrap();
-    let result = cred_lock.deref();
+    let ms_auth: Option<MinecraftAuthentication> = persisted_data.read_value("ms_auth");
+
+    let mut extensions: Vec<Extension> = persisted_data.read_value("extensions").unwrap_or(Vec::new());
+    let java_dir = yakclient_dir().join("runtime");
+    create_dir_all(&java_dir).map_err(IoError)?;
+
+    let mods: Vec<Mod> = persisted_data.read_value("mods").unwrap_or(Vec::new());
+    if !mods.is_empty() {
+        let mod_ext = generate_mod_extension(
+            mods,
+            yakclient_dir().join("repo"),
+            version.clone(),
+        ).await.map_err(|e| ModExtError(e))?;
+
+        extensions.push(mod_ext);
+    }
 
     let child = launch_process(
         version,
-        client::extframework_dir().join("yakclient"),
+        java_dir,
         client_path,
-        result,
-        &*extensions.lock().unwrap(),
-    )?;
+        &ms_auth,
+        &extensions,
+    ).await?;
 
     let child = capture_child(
         child,
@@ -89,7 +107,7 @@ pub async fn launch_minecraft(
         child,
     };
 
-    *process.lock().unwrap() = Some(instance);
+    *process.lock().await = Some(instance);
 
     Ok(())
 }
@@ -98,11 +116,11 @@ pub async fn launch_minecraft(
 pub async fn end_launch_process(
     process: State<'_, Arc<Mutex<Option<LaunchInstance>>>>,
 ) -> Result<(), ClientError> {
-    let mut guard = process.lock().unwrap();
+    let mut guard = process.lock().await;
 
     println!("PROCESS IS: {}", guard.is_some());
     if let Some(process) = guard.deref() {
-        process.shutdown()
+        process.shutdown().await
     } else {
         return Err(ClientNotRunning);
     }
