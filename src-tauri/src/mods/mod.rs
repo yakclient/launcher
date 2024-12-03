@@ -134,12 +134,8 @@ pub async fn generate_mod_extension(
         version: "1".to_string(),
         repositories: vec![
             HashMap::from(
-                // [
-                //     ("location".to_string(), "https://repo.extframework.dev/registry".to_string())
-                // ],
                 [
-                    ("type".to_string(), "local".to_string()),
-                    ("location".to_string(), "/Users/durganmcbroom/.m2/repository".to_string())
+                    ("location".to_string(), "https://repo.extframework.dev/registry".to_string())
                 ],
             ),
         ],
