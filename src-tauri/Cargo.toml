@@ -29,9 +29,11 @@ serde_urlencoded = "0.7.1"
 home = "0.5.5"
 zip-extract = "0.2.1"
 tar = "0.4.43"
+zip = "2.2.1"
 flate2 = "1.0.35"
 futures = "0.3.31"
 uuid = { version = "1.10.0", features = ["v4"] }
+bytes = "1.7.2"
 
 [dev-dependencies]
 tokio = { version = "1.40.0", features = ["full"] }

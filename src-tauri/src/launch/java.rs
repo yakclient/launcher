@@ -1,4 +1,4 @@
-use crate::launch::java::JreSetupError::IOError;
+use crate::launch::java::JreSetupError::{IOError, ZipError};
 use flate2::read::GzDecoder;
 use std::fmt::{format, Debug, Display, Formatter};
 use std::fs::{create_dir_all, File};
@@ -6,13 +6,16 @@ use std::io;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use futures::StreamExt;
 use tar::Archive;
+use zip::ZipArchive;
 use zip_extract::{extract, ZipExtractError};
 
 #[derive(Debug)]
 pub enum JreSetupError {
     NetworkError(reqwest::Error),
     IOError(io::Error),
+    ZipError(zip::result::ZipError),
 }
 
 impl Display for JreSetupError {
@@ -20,6 +23,7 @@ impl Display for JreSetupError {
         let message=  match self {
             JreSetupError::NetworkError(it) => { it.to_string() }
             IOError(it) => {it.to_string()}
+            ZipError(it) => {it.to_string()}
         };
 
         write!(f, "Failed to download JDK because of {}", message)
@@ -34,7 +38,12 @@ async fn download_jre(
 ) -> Result<PathBuf, JreSetupError> {
     let jre_path = path.join(format!("jre-{}", version));
 
-    let java_command_path = jre_path.to_path_buf().join("Contents").join("Home").join("bin").join("java");
+    let java_command_path = if (os_name == "windows") {
+        jre_path.to_path_buf().join("bin").join("java.exe")
+    } else {
+        jre_path.to_path_buf().join("Contents").join("Home").join("bin").join("java")
+    };
+
 
     if java_command_path.exists() {
         return Ok(java_command_path)
@@ -50,20 +59,62 @@ async fn download_jre(
     let bytes = reqwest::get(url).await
         .map_err(|it| JreSetupError::NetworkError(it))?.bytes().await.map_err(|it| JreSetupError::NetworkError(it))?;
 
-    let tar = GzDecoder::new(Cursor::new(bytes));
+    let cursor = Cursor::new(bytes);
+
+    if os_name == "windows" {
+        extract_zip(jre_path, cursor)?;
+    } else {
+        extract_tar_gz(jre_path, cursor)?;
+
+
+    }
+
+    Ok(java_command_path)
+}
+
+
+fn extract_zip(jre_path: PathBuf, cursor: Cursor<bytes::Bytes>) -> Result<(), JreSetupError> {
+    let mut zip = ZipArchive::new(cursor).map_err(ZipError)?;
+
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i).map_err(ZipError)?;
+        let original_path = file.sanitized_name();
+
+        // Strip the first part of the path
+        let stripped_path = original_path
+            .components()
+            .skip(1) // Skip the top-level component
+            .collect::<PathBuf>();
+
+        let outpath = jre_path.join(stripped_path);
+
+        if file.is_dir() {
+            create_dir_all(&outpath).map_err(IOError)?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                create_dir_all(parent).map_err(IOError)?;
+            }
+            let mut outfile = File::create(&outpath).map_err(IOError)?;
+            std::io::copy(&mut file, &mut outfile).map_err(IOError)?;
+        }
+    }
+    Ok(())
+}
+fn extract_tar_gz(jre_path: PathBuf, cursor: Cursor<bytes::Bytes>) -> Result<(), JreSetupError> {
+    let tar = GzDecoder::new(cursor);
     let mut archive = Archive::new(tar);
 
     archive
         .entries().map_err(IOError)?
-        .filter_map(|e| e.ok())
         .map(|mut entry| -> io::Result<PathBuf> {
+            let mut entry = entry?;
+            println!("{}", entry.path().unwrap().display());
             // Strip first part of path
             let path = entry.path()?.strip_prefix(entry.path()?.components().next().unwrap()).unwrap().to_owned();
             entry.unpack(jre_path.join(&path))?;
             Ok(path)
         }).collect::<Result<Vec<_>, io::Error>>().map_err(IOError)?;
-
-    Ok(java_command_path)
+    Ok(())
 }
 
 pub async fn get_java_command(
@@ -102,6 +153,16 @@ mod tests {
         let buf = PathBuf::from("jres");
         create_dir_all(&buf).await.unwrap();
         let path = download_jre("21", os_name, os_arch, buf).await.unwrap();
+
+        println!("{:?}", path);
+    }
+
+    #[tokio::test]
+    async fn test_windows_jre() {
+
+        let buf = PathBuf::from("jres");
+        create_dir_all(&buf).await.unwrap();
+        let path = download_jre("21", "windows", "x64", buf).await.unwrap();
 
         println!("{:?}", path);
     }
