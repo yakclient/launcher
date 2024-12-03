@@ -3,7 +3,7 @@
 import Image from "next/image";
 import mc_png from "../../public/icons/mc_png.png"
 import styles from "./launch_layout.module.css"
-import React, {useEffect, useState} from "react";
+import React, {ForwardedRef, LegacyRef, MouseEventHandler, useEffect, useState} from "react";
 import {Alert, Badge, Button, ButtonGroup, Col, Container, Dropdown, Row} from "react-bootstrap";
 import BackgroundGradient from "@/components/bg_gradient";
 import {Channel, invoke} from "@tauri-apps/api/core";
@@ -11,18 +11,23 @@ import {Alerts, ConsoleChannel, ConsoleLine, useConsole} from "@/pages/_app";
 import {useRouter} from "next/router";
 import Nav from "@/components/nav";
 
-const ProfileButton = React.forwardRef(({ onClick, uuid }, ref) => (
+// eslint-disable-next-line react/display-name
+const ProfileButton = React.forwardRef((
+    {onClick, uuid}: { onClick: MouseEventHandler, uuid: string },
+    ref: LegacyRef<HTMLImageElement>,
+) => (
     <Image
+        ref={ref}
         alt={"Your profile"}
         onClick={(e) => {
             e.preventDefault()
             onClick(e)
         }}
-        ref={ref}
         width={50}
         height={50}
         src={`https://mc-heads.net/avatar/${uuid}.png`}
     />
+
 ));
 
 const LaunchLayout: React.FC<{
