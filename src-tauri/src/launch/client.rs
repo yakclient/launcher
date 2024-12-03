@@ -1,27 +1,9 @@
+use std::cmp::min;
 use std::env;
 use std::fs::{create_dir_all, File};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-
-pub fn extframework_dir() -> PathBuf {
-    let path = if cfg!(target_os = "windows") {
-        env::var("APPDATA")
-            .map(|it| PathBuf::from(it))
-            .unwrap_or_else(|_| {
-                let home = home::home_dir().unwrap();
-                home.join("AppData").join("Roaming")
-            }).join(".minecraft")
-    } else if cfg!(target_os = "macos") {
-        home::home_dir().unwrap()
-            .join("Library")
-            .join("Application Support")
-            .join("minecraft")
-    } else {
-        home::home_dir().unwrap().join(".minecraft")
-    };
-
-    return path.join(".extframework");
-}
+use crate::extframework_dir;
 
 fn client_url(version: String) -> String {
     format!("https://maven.extframework.dev/releases/dev/extframework/client/{version}/client-{version}-all.jar", version = version)

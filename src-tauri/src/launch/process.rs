@@ -1,17 +1,19 @@
 use std::{io, thread};
+use std::env::args;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::str::from_utf8;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::Manager;
-
+use tokio::sync::Mutex;
 use crate::launch::ClientError;
-use crate::launch::ClientError::{IoError, ZipExtractError};
+use crate::launch::ClientError::{IoError, JreInstallError};
 use crate::launch::java::get_java_command;
+use crate::minecraft_dir;
 use crate::state::{Extension, MinecraftAuthentication};
 
 #[derive(Clone, Serialize)]
@@ -20,14 +22,20 @@ pub struct ProcessStdoutEvent {
     pub frag: Vec<u8>,
 }
 
-fn add_env_args(command: &mut Command) -> &mut Command {
+fn add_env_args(legacy: bool, command: &mut Command) -> &mut Command {
     #[cfg(target_os = "macos")] {
-        command
-            .arg("-XstartOnFirstThread");
+        if (!legacy) {
+            command
+                .arg("-XstartOnFirstThread");
+        }
     }
 
+    let bin_path = minecraft_dir().join("bin");
     command
+        .arg(format!("-Djava.library.path={}", bin_path.to_str().unwrap()))
+        // .arg("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005")
         .arg("-jar")
+
 }
 
 struct ProcessStdEmitter {
@@ -53,23 +61,48 @@ impl<'a> Write for ProcessStdEmitter {
     }
 }
 
-pub fn launch_process(
+pub async fn launch_process(
     version: String,
     java_dir: PathBuf,
     client_path: PathBuf,
     auth: &Option<MinecraftAuthentication>,
     extensions: &Vec<Extension>,
 ) -> Result<Child, ClientError> {
-    let mut command = get_java_command(java_dir).map_err(|it| {
-        ZipExtractError(it)
+    // TODO cleaner version support
+    let legacy = version == "1.8.9";
+
+    let java_version = if legacy {
+        "8"
+    } else { "21" };
+
+    let os_name = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "mac"
+    } else {
+        "linux"
+    };
+    let os_arch = if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if (cfg!(target_arch = "aarch64") && !legacy) {
+        "aarch64"
+    } else {
+        "x64"
+    };
+
+    let mut command = get_java_command(java_version, os_name, os_arch, java_dir).await.map_err(|it| {
+        JreInstallError(it)
     })?;
-    add_env_args(&mut command);
+    add_env_args(legacy, &mut command);
     command
         .arg(client_path.to_str().unwrap())
-        .arg(format!("--version=extframework-{}", version));
+        .arg(format!("--version=extframework-{}", version))
+        // Better stacktraces + TODO fixes access widening bug
+        .arg("--mapping-namespace=mojang:deobfuscated");
 
     if let Some(auth) = auth {
-        command.arg(format!("--accessToken={}", auth.access_token))
+        command
+            .arg(format!("--accessToken={}", auth.access_token))
             .arg(format!("--uuid={}", auth.profile.id))
             .arg(format!("--username={}", auth.profile.name));
     }
@@ -82,7 +115,7 @@ pub fn launch_process(
         command.arg("-e");
         command.arg(x.descriptor.as_str());
         command.arg("-r");
-        command.arg(format!("default@{}/registry", x.repository.as_str()));
+        command.arg(format!("{}@{}", x.repository_type.cli_arg(), x.repository.as_str()));
     }
 
     let child = command

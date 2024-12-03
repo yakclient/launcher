@@ -6,9 +6,26 @@ import {invoke} from "@tauri-apps/api/core";
 import {Alerts} from "@/pages/_app";
 import {useRouter} from "next/router";
 import Link from "next/link";
+import {router} from "next/client";
+import {useEffect} from "react";
+
+
 
 const Login: React.FC = () => {
     const router = useRouter();
+
+    useEffect(() => {
+        (window as any).noAuth = (): void => {
+            invoke("use_no_auth").then(() => {
+                router.push("/home")
+            })
+        };
+
+        return () => {
+            delete (window as any).myFunction;
+        };
+    })
+
     return (
         <Alerts.Consumer>
             {addAlert =>
@@ -23,28 +40,28 @@ const Login: React.FC = () => {
                         />
                     </div>
                     <div id={styles.title} className={styles.centered}>
-                        <h1>YakClient Login</h1>
+                        <h1>YakClient</h1>
                     </div>
                     <div id={styles.login} className={styles.centered}>
                         <h2>Login with Microsoft</h2>
-                        <Button
-                            as={"button"}
-                            onClick={() => {
-                                invoke("use_no_auth")
-                                    .then(() => {
-                                        addAlert(
-                                            "success",
-                                            <>
-                                                <Alert.Heading>Success!</Alert.Heading>
-                                                <hr/>
-                                                You&apos;ve been authenticated.
-                                            </>
-                                        )
-                                        router.push("/home")
-                                    })
-                            }}>
-                            Continue unauthenticated
-                        </Button>
+                        {/*<Button*/}
+                        {/*    as={"button"}*/}
+                        {/*    onClick={() => {*/}
+                        {/*        invoke("use_no_auth")*/}
+                        {/*            .then(() => {*/}
+                        {/*                addAlert(*/}
+                        {/*                    "success",*/}
+                        {/*                    <>*/}
+                        {/*                        <Alert.Heading>Success!</Alert.Heading>*/}
+                        {/*                        <hr/>*/}
+                        {/*                        You&apos;ve been authenticated.*/}
+                        {/*                    </>*/}
+                        {/*                )*/}
+                        {/*                router.push("/home")*/}
+                        {/*            })*/}
+                        {/*    }}>*/}
+                        {/*    Continue unauthenticated*/}
+                        {/*</Button>*/}
                         <Button
                             as={"button"}
                             variant="success"

@@ -1,22 +1,24 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
-use std::io;
+use std::{io, result};
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 
 use reqwest::Error;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tauri::State;
+use tokio::sync::Mutex;
 use url::form_urlencoded;
 
 use MicrosoftAuthenticationError::{IOError, ServerError};
 
 use crate::oauth::MicrosoftAuthenticationError::{MalformedOAuthRequest, MsError, NetworkError, XboxLiveResponseError};
 use crate::oauth::server::{HttpServerError, start};
+use crate::persist::PersistedData;
 use crate::state::{MinecraftAuthentication, MinecraftProfile, OAuthConfig};
 
 mod server;
@@ -32,9 +34,8 @@ pub enum MicrosoftAuthenticationError {
     IOError(io::Error),
     NetworkError(Error),
     MsError(MsErrorResponse),
-    XboxLiveResponseError(String)
+    XboxLiveResponseError(String),
 }
-
 impl Serialize for MicrosoftAuthenticationError {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -65,9 +66,7 @@ impl From<Error> for MicrosoftAuthenticationError {
 }
 
 #[tauri::command]
-pub async fn use_no_auth(
-    mc_creds: State<'_, Arc<Mutex<Option<MinecraftAuthentication>>>>,
-) -> Result<()> {
+pub async fn use_no_auth() -> Result<()> {
     // *mc_creds.lock().unwrap() = Some(MinecraftAuthentication {
     //     access_token: "".to_string(),
     //     expires_in: 0,
@@ -81,12 +80,24 @@ pub async fn use_no_auth(
     Ok(())
 }
 
+// #[tauri::command]
+// pub async fn check_authentication(
+//     persisted_data: State<'_, PersistedData>,
+// ) -> bool {
+//     if let Some(auth) = persisted_data.read_value::<MinecraftAuthentication, &str>("mc_auth") {
+//         // TODO token refresh
+//         true
+//     } else {
+//         false
+//     }
+// }
+
 #[tauri::command]
 pub async fn microsoft_login(
-    oauth_config: State<'_, OAuthConfig<'static>>,
-    mc_creds: State<'_, Arc<Mutex<Option<MinecraftAuthentication>>>>,
+    oauth_config: State<'_, OAuthConfig>,
+    persisted_data: State<'_, PersistedData>,
 ) -> Result<()> {
-    let creds = launch_login(&oauth_config).unwrap().unwrap();
+    let creds = launch_login(&oauth_config).await?.unwrap();
 
     let ms_token = get_ms_token(
         creds.token,
@@ -97,44 +108,64 @@ pub async fn microsoft_login(
     let minecraft_token = get_minecraft_access_token(xsts_live_token).await?;
     let minecraft_profile = get_minecraft_profile(&minecraft_token).await.unwrap();
 
-    *mc_creds.lock().unwrap() = Some(MinecraftAuthentication {
+    let authentication = MinecraftAuthentication {
         access_token: minecraft_token.access_token,
         expires_in: minecraft_token.expires_in,
         refresh_token: ms_token.refresh_token,
         profile: minecraft_profile,
-    });
+    };
+
+    persisted_data.put_value("ms_auth", authentication);
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_mc_profile(
+    persisted_data: State<'_, PersistedData>,
+) -> result::Result<MinecraftProfile, ()> {
+    let auth: Option<MinecraftAuthentication> = persisted_data.read_value("ms_auth");
+
+    if let Some(auth) = auth {
+        Ok(auth.profile)
+    } else { Err(()) }
 }
 
 pub struct MicrosoftCredentials {
     pub token: String,
 }
 
-fn launch_login(
+async fn launch_login(
     config: &OAuthConfig
 ) -> Result<Option<MicrosoftCredentials>> {
-    let amCreds = Arc::new(Mutex::new(None));
+    let am_creds = Arc::new(Mutex::new(None));
 
-    let response_type = config.response_type.to_string();
-    let am_clone = amCreds.clone();
-    let server = start(SocketAddr::from(([127, 0, 0, 1], 6879)), move |path, stream| {
-        let mut pairs = if let Some(query_start) = path.find('?') {
-            let query = &path[query_start + 1..];
+    // I will admit I do not understand how the following syntax fully works.
+    // We first create a non async closure in which we clone our arcs and other values
+    // from there, we create a second block with is both async and moves the values
+    // into itself. Why is this different than just one closure?
+    let server = start(SocketAddr::from(([127, 0, 0, 1], 6879)), |path: String, stream| {
+        let response_type = config.response_type.to_string().clone();
+        let am_clone = am_creds.clone();
 
-            form_urlencoded::parse(query.as_bytes())
-        } else {
-            return Err("Invalid, no request parameters.".to_string());
-        };
+        async move {
+            let mut pairs = if let Some(query_start) = path.find('?') {
+                let query = &path[query_start + 1..];
 
-        let pair = pairs.find(|it| {
-            let x = it.0.deref();
-            x == response_type
-        }).ok_or("Invalid oauth request.".to_string())?;
+                form_urlencoded::parse(query.as_bytes())
+            } else {
+                return Err("Invalid, no request parameters.".to_string());
+            };
 
-        *am_clone.lock().unwrap() = Some(pair.1.to_string());
-        Ok("You have been authenticated! You can now return to the launcher.".to_string())
-    }).unwrap();
+            let pair = pairs.find(|it| {
+                let x = it.0.deref();
+                x == response_type
+            }).ok_or("Invalid oauth request.".to_string())?;
+
+            *am_clone.lock().await = Some(pair.1.to_string());
+            Ok("You have been authenticated! You can now return to the launcher.".to_string())
+        }
+    });
 
     open::that_detached(
         make_oauth_path(
@@ -143,9 +174,9 @@ fn launch_login(
         )
     ).map_err(|e| IOError(e))?;
 
-    server.join().unwrap();
+    server.await.expect("Failed to start web server");
 
-    let credentials = amCreds.lock().unwrap().clone().map(|s| MicrosoftCredentials {
+    let credentials = am_creds.lock().await.clone().map(|s| MicrosoftCredentials {
         token: s
     });
 
@@ -193,9 +224,9 @@ struct MsErrorResponse {
     pub correlation_id: String,
 }
 
-async fn get_ms_token<'a>(
+async fn get_ms_token(
     code: String,
-    oauth_config: &OAuthConfig<'a>,
+    oauth_config: &OAuthConfig,
     redirect_uri: String,
 ) -> Result<MsTokenResponse> {
     let url = reqwest::Url::parse(format!(
@@ -207,11 +238,11 @@ async fn get_ms_token<'a>(
     let client = reqwest::Client::new();
 
     let mut params = HashMap::new();
-    params.insert("client_id", oauth_config.client_id);
-    params.insert("scope", "xboxlive.signin");
-    params.insert("code", code.as_str());
-    params.insert("grant_type", "authorization_code");
-    params.insert("redirect_uri", redirect_uri.as_str());
+    params.insert("client_id", oauth_config.client_id.clone());
+    params.insert("scope", "xboxlive.signin".to_string());
+    params.insert("code", code);
+    params.insert("grant_type", "authorization_code".to_string());
+    params.insert("redirect_uri", redirect_uri);
 
     // Serialize the parameters to URL-encoded format
     let body = serde_urlencoded::to_string(&params).unwrap();
@@ -222,11 +253,11 @@ async fn get_ms_token<'a>(
         .body(body) // Set the URL-encoded form data as the body
         .send().await?;
 
-    return if response.status().is_success() {
+    if response.status().is_success() {
         Ok(response.json::<MsTokenResponse>().await?)
     } else {
         Err(MsError(response.json::<MsErrorResponse>().await?))
-    };
+    }
 }
 
 struct XbxlAuthResponse {
@@ -381,13 +412,13 @@ mod tests {
     #[tokio::test]
     async fn test_server_and_web_open() {
         let config = OAuthConfig {
-            client_id: "d64e5a9a-514f-482a-a8b4-967918739d9c",
-            response_type: "code",
-            scope: "XboxLive.signin%20offline_access",
-            tenant: "consumers",
+            client_id: "d64e5a9a-514f-482a-a8b4-967918739d9c".to_string(),
+            response_type: "code".to_string(),
+            scope: "XboxLive.signin%20offline_access".to_string(),
+            tenant: "consumers".to_string(),
         };
 
-        let creds = launch_login(&config).unwrap().unwrap();
+        let creds = launch_login(&config).await.unwrap().unwrap();
 
         println!("CODE: {}", creds.token);
 
@@ -414,10 +445,10 @@ mod tests {
     #[test]
     fn create_url() {
         let config = OAuthConfig {
-            client_id: "test",
-            response_type: "yes",
-            scope: "scope",
-            tenant: "someone",
+            client_id: "test".to_string(),
+            response_type: "yes".to_string(),
+            scope: "scope".to_string(),
+            tenant: "someone".to_string(),
         };
 
         let path = make_oauth_path(

@@ -1,5 +1,6 @@
 use std::{io, thread};
 use std::fmt::{Debug, Display, format, Formatter};
+use std::future::Future;
 use std::io::{Error, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::thread::JoinHandle;
@@ -10,7 +11,7 @@ pub type Result<T> = std::result::Result<T, HttpServerError>;
 pub enum HttpServerError {
     IOError(io::Error),
     URLError(httparse::Error),
-    HandlerError(String)
+    HandlerError(String),
 }
 
 impl Display for HttpServerError {
@@ -45,36 +46,45 @@ impl From<io::Error> for HttpServerError {
     }
 }
 
-pub fn start(
+pub async fn start<F, T>(
     addr: impl ToSocketAddrs,
-    handler: impl Fn(&str, &mut TcpStream) -> std::result::Result<String, String> + Send + Sync + 'static
-) -> Result<JoinHandle<()>> {
+    handler: F,
+) -> Result<()>
+where
+    F: Fn(String, &mut TcpStream) -> T,
+    T: Future<Output=std::result::Result<String, String>> + Send + Sync + 'static,
+{
     let listener = TcpListener::bind(addr)?;
 
-   Ok(thread::spawn(move || {
-        for req in listener.incoming() {
-            match req {
-                Ok(req) => {
-                    if handle_conn(
-                        req,
-                        &handler
-                    ).expect("Error handling connection") {
-                        break
-                    }
-                }
-                Err(err) => {
-                    log::error!("Error reading connect for OAuth server: {}", err.to_string());
+    // Ok(thread::spawn(move || async {
+    for req in listener.incoming() {
+        match req {
+            Ok(req) => {
+                if handle_conn(
+                    req,
+                    &handler,
+                ).await.expect("Error handling connection") {
+                    break;
                 }
             }
+            Err(err) => {
+                log::error!("Error reading connect for OAuth server: {}", err.to_string());
+            }
         }
-    }))
+    }
+    // }))
+    Ok(())
 }
 
 // Returns if should shut down the server
-fn handle_conn(
+async fn handle_conn<F, T>(
     mut stream: TcpStream,
-    handler: &impl Fn(&str, &mut TcpStream) -> std::result::Result<String, String>
-) -> Result<bool> {
+    handler: F,
+) -> Result<bool>
+where
+    F: Fn(String, &mut TcpStream) -> T,
+    T: Future<Output=std::result::Result<String, String>> + Send + Sync + 'static,
+{
     let mut buffer = [0; 4048];
     if let Err(io_err) = stream.read(&mut buffer) {
         log::error!("Error reading connect headers: {}", io_err.to_string());
@@ -91,7 +101,7 @@ fn handle_conn(
 
     let path = request.path.unwrap_or_default();
 
-    let response = handler(path, &mut stream).map_err(|e| {
+    let response = handler(path.to_string(), &mut stream).await.map_err(|e| {
         HttpServerError::HandlerError(e)
     });
 
@@ -114,10 +124,10 @@ mod tests {
     use std::net::SocketAddr;
     use crate::oauth::server::start;
 
-    #[test]
-    fn test_server_run() {
-        start(SocketAddr::from(([127, 0, 0, 1], 8080)), |path, stream| {
+    #[tokio::test]
+    async fn test_server_run() {
+        start(SocketAddr::from(([127, 0, 0, 1], 8080)), |path, stream| async {
             Ok(("Hey, you get this?".to_string()))
-        }).unwrap().join().unwrap();
+        }).await.unwrap();
     }
 }

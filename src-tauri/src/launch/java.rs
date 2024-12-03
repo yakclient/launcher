@@ -1,47 +1,126 @@
-use std::fs::create_dir_all;
+use crate::launch::java::JreSetupError::IOError;
+use flate2::read::GzDecoder;
+use std::fmt::{format, Debug, Display, Formatter};
+use std::fs::{create_dir_all, File};
+use std::io;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
+use tar::Archive;
 use zip_extract::{extract, ZipExtractError};
 
-fn write_jdk(path: &PathBuf) -> Result<(), ZipExtractError> {
-    let jre = include_bytes!("../../bin/jre.bundle");
-
-    extract(Cursor::new(jre), Path::new(path), false).unwrap();
-    Ok(())
+#[derive(Debug)]
+pub enum JreSetupError {
+    NetworkError(reqwest::Error),
+    IOError(io::Error),
 }
 
-pub fn get_java_command(
-    path: PathBuf
-) -> Result<Command, ZipExtractError> {
-    let path_to_java = path
-        .join("jre")
-        .join("bin")
-        .join("java");
+impl Display for JreSetupError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let message=  match self {
+            JreSetupError::NetworkError(it) => { it.to_string() }
+            IOError(it) => {it.to_string()}
+        };
 
-    if !Path::new(&path_to_java).exists() {
-        let buf = path.join("jre");
-        create_dir_all(&buf).map_err(|e| {
-            ZipExtractError::Io(e)
-        })?;
-        write_jdk(
-            &buf
-        )?;
+        write!(f, "Failed to download JDK because of {}", message)
+    }
+}
+
+async fn download_jre(
+    version: &str,
+    os_name: &str,
+    os_arch: &str,
+    path: PathBuf,
+) -> Result<PathBuf, JreSetupError> {
+    let jre_path = path.join(format!("jre-{}", version));
+
+    let java_command_path = jre_path.to_path_buf().join("Contents").join("Home").join("bin").join("java");
+
+    if java_command_path.exists() {
+        return Ok(java_command_path)
     }
 
-    Ok(Command::new(path_to_java))
+    let url = format!(
+        "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jre/hotspot/normal/adoptium",
+        version,
+        os_name,
+        os_arch
+    );
+
+    let bytes = reqwest::get(url).await
+        .map_err(|it| JreSetupError::NetworkError(it))?.bytes().await.map_err(|it| JreSetupError::NetworkError(it))?;
+
+    let tar = GzDecoder::new(Cursor::new(bytes));
+    let mut archive = Archive::new(tar);
+
+    archive
+        .entries().map_err(IOError)?
+        .filter_map(|e| e.ok())
+        .map(|mut entry| -> io::Result<PathBuf> {
+            // Strip first part of path
+            let path = entry.path()?.strip_prefix(entry.path()?.components().next().unwrap()).unwrap().to_owned();
+            entry.unpack(jre_path.join(&path))?;
+            Ok(path)
+        }).collect::<Result<Vec<_>, io::Error>>().map_err(IOError)?;
+
+    Ok(java_command_path)
+}
+
+pub async fn get_java_command(
+    version: &str,
+    os_name: &str,
+    os_arch: &str,
+    path: PathBuf
+) -> Result<Command, JreSetupError> {
+    let path = download_jre(version, os_name, os_arch, path).await?;
+
+    Ok(Command::new(path))
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::launch::java::download_jre;
     use std::path::PathBuf;
-    use crate::launch::java::get_java_command;
+    use tokio::fs::create_dir_all;
 
-    #[test]
-    fn test_get_java_command() {
-        get_java_command(
-            PathBuf::from("test")
-        ).unwrap();
+    #[tokio::test]
+    async fn test_download_jdk() {
+        let os_name = if cfg!(target_os = "windows") {
+            "windows"
+        } else if cfg!(target_os = "macos") {
+            "mac"
+        } else {
+            "linux"
+        };
+        let os_arch = if cfg!(target_arch = "x86_64") {
+            "x64"
+        } else if cfg!(target_arch = "aarch64") {
+            "aarch64"
+        } else {
+            "x64"
+        };
+        let buf = PathBuf::from("jres");
+        create_dir_all(&buf).await.unwrap();
+        let path = download_jre("21", os_name, os_arch, buf).await.unwrap();
+
+        println!("{:?}", path);
+    }
+
+    #[tokio::test]
+    async fn test_download_jre_8() {
+        let os_name = if cfg!(target_os = "windows") {
+            "windows"
+        } else if cfg!(target_os = "macos") {
+            "mac"
+        } else {
+            "linux"
+        };
+
+
+        let buf = PathBuf::from("jres");
+        create_dir_all(&buf).await.unwrap();
+        let path = download_jre("8", os_name, "x64", buf).await.unwrap();
+
+        println!("{:?}", path);
     }
 }

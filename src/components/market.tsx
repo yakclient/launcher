@@ -1,7 +1,8 @@
 import React, {useState} from "react";
 import Nav from "@/components/nav";
 import {Card} from "react-bootstrap";
-import Extensions from "@/components/extensions_search";
+import Extensions from "@/components/extension/extensions_search";
+import Mods from "@/components/mod/mods_search";
 
 const Market: React.FC = () => {
     let [page, setPage] = useState(0);
@@ -16,18 +17,7 @@ const Market: React.FC = () => {
         {
             name: "Mods",
             component: <>
-                <Card style={{
-                    margin: "10px 0",
-                    maxHeight: "200px",
-                }}>
-                    <Card.Body>
-                        <Card.Title as="h4" className="h5 h4-sm">
-                            Not done yet...
-                        </Card.Title>
-                        <Card.Text>What are you waiting for? I told you this wasnt done.</Card.Text>
-
-                    </Card.Body>
-                </Card>
+                <Mods/>
             </>
         }
     ]
