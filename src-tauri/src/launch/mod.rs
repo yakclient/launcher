@@ -1,10 +1,12 @@
-use crate::launch::client::get_client;
+use crate::launch::client::{get_client, get_client_version};
 use crate::launch::java::JreSetupError;
 use crate::launch::process::{capture_child, launch_process, ProcessStdoutEvent};
 use crate::launch::ClientError::{ClientNotRunning, ClientProcessError, IoError, ModExtError, NetworkError, Unauthenticated};
+use crate::mods::{generate_mod_extension, ModExtGenerationError};
 use crate::persist::PersistedData;
 use crate::state::{Extension, LaunchInstance, MinecraftAuthentication, Mod};
 use crate::yakclient_dir;
+use futures::TryFutureExt;
 use serde::{Serialize, Serializer};
 use std::fmt::{Display, Formatter};
 use std::fs::create_dir_all;
@@ -16,13 +18,12 @@ use tauri::ipc::Channel;
 use tauri::State;
 use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
-use crate::mods::{generate_mod_extension, ModExtGenerationError};
 
 mod client;
 mod process;
 mod java;
 
-const CLIENT_VERSION: &'static str = "1.0.11-BETA";
+// const CLIENT_VERSION: &'static str = "1.0.11-BETA";
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -70,20 +71,22 @@ pub async fn launch_minecraft(
 ) -> Result<(), ClientError> {
     if process.lock().await.is_some() { return Err(ClientError::ClientAlreadyRunning); }
 
-    let client_path = get_client(CLIENT_VERSION.to_string()).await.map_err(|e| NetworkError(e))?;
+    let yakclient_dir = yakclient_dir();
+
+    let client_path = get_client(get_client_version(&yakclient_dir).await?).await.map_err(|e| NetworkError(e))?;
 
     println!("Launching Minecraft");
     let ms_auth: Option<MinecraftAuthentication> = persisted_data.read_value("ms_auth");
 
     let mut extensions: Vec<Extension> = persisted_data.read_value("extensions").unwrap_or(Vec::new());
-    let java_dir = yakclient_dir().join("runtime");
+    let java_dir = yakclient_dir.join("runtime");
     create_dir_all(&java_dir).map_err(IoError)?;
 
     let mods: Vec<Mod> = persisted_data.read_value("mods").unwrap_or(Vec::new());
     if !mods.is_empty() {
         let mod_ext = generate_mod_extension(
             mods,
-            yakclient_dir().join("repo"),
+            yakclient_dir.join("repo"),
             version.clone(),
         ).await.map_err(|e| ModExtError(e))?;
 
