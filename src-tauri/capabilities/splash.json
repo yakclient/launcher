@@ -1,0 +1,9 @@
+{
+  "$schema": "./schemas/desktop-schema.json",
+  "identifier": "splash",
+  "description": "Capability for the main window",
+  "windows": ["splashscreen"],
+  "permissions": [
+    "updater:default"
+  ]
+}

@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
-use std::{io, result};
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc};
+use std::sync::Arc;
+use std::{io, result};
 
-use reqwest::Error;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::Error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tauri::State;
@@ -16,8 +16,10 @@ use url::form_urlencoded;
 
 use MicrosoftAuthenticationError::{IOError, ServerError};
 
-use crate::oauth::MicrosoftAuthenticationError::{MalformedOAuthRequest, MsError, NetworkError, XboxLiveResponseError};
-use crate::oauth::server::{HttpServerError, start};
+use crate::oauth::server::{start, HttpServerError};
+use crate::oauth::MicrosoftAuthenticationError::{
+    MalformedOAuthRequest, MsError, NetworkError, XboxLiveResponseError,
+};
 use crate::persist::PersistedData;
 use crate::state::{MinecraftAuthentication, MinecraftProfile, OAuthConfig};
 
@@ -48,12 +50,12 @@ impl Serialize for MicrosoftAuthenticationError {
 impl Display for MicrosoftAuthenticationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let str = match self {
-            ServerError(e) => { e.to_string() }
-            MalformedOAuthRequest() => { "Malformed OAuth request".to_string() }
-            IOError(e) => { e.to_string() }
-            NetworkError(e) => { e.to_string() }
-            MsError(e) => { e.error_description.clone() }
-            XboxLiveResponseError(e) => { e.clone() }
+            ServerError(e) => e.to_string(),
+            MalformedOAuthRequest() => "Malformed OAuth request".to_string(),
+            IOError(e) => e.to_string(),
+            NetworkError(e) => e.to_string(),
+            MsError(e) => e.error_description.clone(),
+            XboxLiveResponseError(e) => e.clone(),
         };
         write!(f, "{}", str)
     }
@@ -102,7 +104,9 @@ pub async fn microsoft_login(
     let ms_token = get_ms_token(
         creds.token,
         oauth_config.deref(),
-        format!("http://localhost:6879/{}", OAUTH_PATH)).await?;
+        format!("http://localhost:6879/{}", OAUTH_PATH),
+    )
+    .await?;
     let xbx_live_token = get_xbxl_token(&ms_token).await?;
     let xsts_live_token = get_xsts_token(xbx_live_token).await?;
     let minecraft_token = get_minecraft_access_token(xsts_live_token).await?;
@@ -128,65 +132,68 @@ pub async fn get_mc_profile(
 
     if let Some(auth) = auth {
         Ok(auth.profile)
-    } else { Err(()) }
+    } else {
+        Err(())
+    }
 }
 
 pub struct MicrosoftCredentials {
     pub token: String,
 }
 
-async fn launch_login(
-    config: &OAuthConfig
-) -> Result<Option<MicrosoftCredentials>> {
+async fn launch_login(config: &OAuthConfig) -> Result<Option<MicrosoftCredentials>> {
     let am_creds = Arc::new(Mutex::new(None));
 
     // I will admit I do not understand how the following syntax fully works.
     // We first create a non async closure in which we clone our arcs and other values
     // from there, we create a second block with is both async and moves the values
     // into itself. Why is this different than just one closure?
-    let server = start(SocketAddr::from(([127, 0, 0, 1], 6879)), |path: String, stream| {
-        let response_type = config.response_type.to_string().clone();
-        let am_clone = am_creds.clone();
+    let server = start(
+        SocketAddr::from(([127, 0, 0, 1], 6879)),
+        |path: String, stream| {
+            let response_type = config.response_type.to_string().clone();
+            let am_clone = am_creds.clone();
 
-        async move {
-            let mut pairs = if let Some(query_start) = path.find('?') {
-                let query = &path[query_start + 1..];
+            async move {
+                let mut pairs = if let Some(query_start) = path.find('?') {
+                    let query = &path[query_start + 1..];
 
-                form_urlencoded::parse(query.as_bytes())
-            } else {
-                return Err("Invalid, no request parameters.".to_string());
-            };
+                    form_urlencoded::parse(query.as_bytes())
+                } else {
+                    return Err("Invalid, no request parameters.".to_string());
+                };
 
-            let pair = pairs.find(|it| {
-                let x = it.0.deref();
-                x == response_type
-            }).ok_or("Invalid oauth request.".to_string())?;
+                let pair = pairs
+                    .find(|it| {
+                        let x = it.0.deref();
+                        x == response_type
+                    })
+                    .ok_or("Invalid oauth request.".to_string())?;
 
-            *am_clone.lock().await = Some(pair.1.to_string());
-            Ok("You have been authenticated! You can now return to the launcher.".to_string())
-        }
-    });
+                *am_clone.lock().await = Some(pair.1.to_string());
+                Ok("You have been authenticated! You can now return to the launcher.".to_string())
+            }
+        },
+    );
 
-    open::that_detached(
-        make_oauth_path(
-            &config,
-            format!("http://localhost:6879/{}", OAUTH_PATH).as_str(),
-        )
-    ).map_err(|e| IOError(e))?;
+    open::that_detached(make_oauth_path(
+        &config,
+        format!("http://localhost:6879/{}", OAUTH_PATH).as_str(),
+    ))
+    .map_err(|e| IOError(e))?;
 
     server.await.expect("Failed to start web server");
 
-    let credentials = am_creds.lock().await.clone().map(|s| MicrosoftCredentials {
-        token: s
-    });
+    let credentials = am_creds
+        .lock()
+        .await
+        .clone()
+        .map(|s| MicrosoftCredentials { token: s });
 
     Ok(credentials)
 }
 
-fn make_oauth_path(
-    config: &OAuthConfig,
-    redirect_uri: &str,
-) -> OsString {
+fn make_oauth_path(config: &OAuthConfig, redirect_uri: &str) -> OsString {
     let str = format!(
         "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?\
         client_id={client_id}&\
@@ -229,10 +236,14 @@ async fn get_ms_token(
     oauth_config: &OAuthConfig,
     redirect_uri: String,
 ) -> Result<MsTokenResponse> {
-    let url = reqwest::Url::parse(format!(
-        "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
-        tenant = oauth_config.tenant
-    ).as_str()).unwrap();
+    let url = reqwest::Url::parse(
+        format!(
+            "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+            tenant = oauth_config.tenant
+        )
+        .as_str(),
+    )
+    .unwrap();
 
     println!("{}", url);
     let client = reqwest::Client::new();
@@ -247,11 +258,13 @@ async fn get_ms_token(
     // Serialize the parameters to URL-encoded format
     let body = serde_urlencoded::to_string(&params).unwrap();
 
-    let response = client.post(url)
+    let response = client
+        .post(url)
         .header(ACCEPT, "application/x-www-form-urlencoded")
         .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(body) // Set the URL-encoded form data as the body
-        .send().await?;
+        .send()
+        .await?;
 
     if response.status().is_success() {
         Ok(response.json::<MsTokenResponse>().await?)
@@ -266,9 +279,12 @@ struct XbxlAuthResponse {
 }
 
 fn parse_xl_token_response(value: Value) -> Result<XbxlAuthResponse> {
-    let token = value["Token"].as_str().ok_or(XboxLiveResponseError(
-        "Failed to find value Token in response".to_string()
-    ))?.to_string();
+    let token = value["Token"]
+        .as_str()
+        .ok_or(XboxLiveResponseError(
+            "Failed to find value Token in response".to_string(),
+        ))?
+        .to_string();
 
     let user_hash = value["DisplayClaims"].as_object().ok_or(XboxLiveResponseError("Failed to find value 'DisplayClaims' in response".to_string()))?
         ["xui"].as_array().ok_or(XboxLiveResponseError("Failed to find value 'xui' in DisplayClaims in response".to_string()))?
@@ -276,15 +292,10 @@ fn parse_xl_token_response(value: Value) -> Result<XbxlAuthResponse> {
         .as_object().ok_or(XboxLiveResponseError("Failed to parse type as object in first value in array in xui in DisplayClaims in response".to_string()))?
         ["uhs"].as_str().ok_or(XboxLiveResponseError("Failed to find value 'uhs' in first value in array in xui in DisplayClaims in response".to_string()))?.to_string();
 
-    Ok(XbxlAuthResponse {
-        token,
-        user_hash,
-    })
+    Ok(XbxlAuthResponse { token, user_hash })
 }
 
-async fn get_xbxl_token(
-    ms_token_response: &MsTokenResponse,
-) -> Result<XbxlAuthResponse> {
+async fn get_xbxl_token(ms_token_response: &MsTokenResponse) -> Result<XbxlAuthResponse> {
     let client = reqwest::Client::new();
 
     let body = json!({
@@ -297,25 +308,26 @@ async fn get_xbxl_token(
         "TokenType": "JWT"
     });
 
-    let response = client.post("https://user.auth.xboxlive.com/user/authenticate")
+    let response = client
+        .post("https://user.auth.xboxlive.com/user/authenticate")
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .json(&body)
-        .send().await?;
+        .send()
+        .await?;
 
     return if response.status().is_success() {
         let response: Value = response.json().await?;
 
         parse_xl_token_response(response)
     } else {
-        Err(XboxLiveResponseError("Server error, received non 200 response code.".to_string()))
+        Err(XboxLiveResponseError(
+            "Server error, received non 200 response code.".to_string(),
+        ))
     };
 }
 
-
-async fn get_xsts_token(
-    xbxl_auth_response: XbxlAuthResponse,
-) -> Result<XbxlAuthResponse> {
+async fn get_xsts_token(xbxl_auth_response: XbxlAuthResponse) -> Result<XbxlAuthResponse> {
     let client = reqwest::Client::new();
 
     let body = json!({
@@ -329,18 +341,22 @@ async fn get_xsts_token(
         "TokenType": "JWT"
     });
 
-    let response = client.post("https://xsts.auth.xboxlive.com/xsts/authorize")
+    let response = client
+        .post("https://xsts.auth.xboxlive.com/xsts/authorize")
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .json(&body)
-        .send().await?;
+        .send()
+        .await?;
 
     return if response.status().is_success() {
         let response: Value = response.json().await?;
 
         parse_xl_token_response(response)
     } else {
-        Err(XboxLiveResponseError("Server error, received non 200 response code.".to_string()))
+        Err(XboxLiveResponseError(
+            "Server error, received non 200 response code.".to_string(),
+        ))
     };
 }
 
@@ -354,7 +370,7 @@ struct MinecraftAccessToken {
 }
 
 async fn get_minecraft_access_token(
-    xsts_token_response: XbxlAuthResponse
+    xsts_token_response: XbxlAuthResponse,
 ) -> Result<MinecraftAccessToken> {
     let client = reqwest::Client::new();
 
@@ -362,30 +378,38 @@ async fn get_minecraft_access_token(
         "identityToken": format!("XBL3.0 x={};{}", xsts_token_response.user_hash, xsts_token_response.token)
     });
 
-    let response = client.post("https://api.minecraftservices.com/authentication/login_with_xbox")
+    let response = client
+        .post("https://api.minecraftservices.com/authentication/login_with_xbox")
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .json(&body)
-        .send().await?;
+        .send()
+        .await?;
 
     return if response.status().is_success() {
         let response: MinecraftAccessToken = response.json().await?;
 
         Ok(response)
     } else {
-        Err(XboxLiveResponseError("Server error, received non 200 response code.".to_string()))
+        Err(XboxLiveResponseError(
+            "Server error, received non 200 response code.".to_string(),
+        ))
     };
 }
 
-
 async fn get_minecraft_profile(
-    minecraft_access_token: &MinecraftAccessToken
+    minecraft_access_token: &MinecraftAccessToken,
 ) -> Result<MinecraftProfile> {
     let client = reqwest::Client::new();
 
-    let response = client.get("https://api.minecraftservices.com/minecraft/profile")
-        .header(AUTHORIZATION, format!("Bearer {}", minecraft_access_token.access_token))
-        .send().await?;
+    let response = client
+        .get("https://api.minecraftservices.com/minecraft/profile")
+        .header(
+            AUTHORIZATION,
+            format!("Bearer {}", minecraft_access_token.access_token),
+        )
+        .send()
+        .await?;
 
     return if response.status().is_success() {
         let response: MinecraftProfile = response.json().await?;
@@ -393,20 +417,23 @@ async fn get_minecraft_profile(
         Ok(response)
     } else {
         println!("{}", response.text().await.unwrap());
-        Err(XboxLiveResponseError("Server error, received non 200 response code.".to_string()))
+        Err(XboxLiveResponseError(
+            "Server error, received non 200 response code.".to_string(),
+        ))
     };
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::oauth::{get_minecraft_access_token, get_minecraft_profile, get_ms_token, get_xbxl_token, get_xsts_token, launch_login, make_oauth_path, OAUTH_PATH};
+    use crate::oauth::{
+        get_minecraft_access_token, get_minecraft_profile, get_ms_token, get_xbxl_token,
+        get_xsts_token, launch_login, make_oauth_path, OAUTH_PATH,
+    };
     use crate::state::OAuthConfig;
 
     #[test]
     fn test_open_browser() {
-        open::that_detached(
-            "https://google.com"
-        ).unwrap();
+        open::that_detached("https://google.com").unwrap();
     }
 
     #[tokio::test]
@@ -422,7 +449,13 @@ mod tests {
 
         println!("CODE: {}", creds.token);
 
-        let token = get_ms_token(creds.token, &config, format!("http://localhost:6879/{}", OAUTH_PATH)).await.unwrap();
+        let token = get_ms_token(
+            creds.token,
+            &config,
+            format!("http://localhost:6879/{}", OAUTH_PATH),
+        )
+        .await
+        .unwrap();
         println!("ACCESS TOKEN: {}", token.access_token);
 
         let xbx_live_token = get_xbxl_token(&token).await.unwrap();
@@ -439,7 +472,10 @@ mod tests {
 
         let minecraft_profile = get_minecraft_profile(&minecraft_token).await.unwrap();
 
-        println!("Minecraft PROFILE: {}, {}", minecraft_profile.name, minecraft_profile.id);
+        println!(
+            "Minecraft PROFILE: {}, {}",
+            minecraft_profile.name, minecraft_profile.id
+        );
     }
 
     #[test]

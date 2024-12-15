@@ -1,10 +1,11 @@
 import type {AppProps} from 'next/app'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import './globals.scss'
-import {Alert, ThemeProvider} from "react-bootstrap";
-import React, {ReactNode, useContext, useState} from "react";
+import {Alert, ProgressBar, ThemeProvider} from "react-bootstrap";
+import React, {ReactNode, useContext, useEffect, useState} from "react";
 import {Variant} from "react-bootstrap/types";
 import {Channel, invoke} from "@tauri-apps/api/core";
+import {listen} from "@tauri-apps/api/event";
 
 // ---- ALERT SYSTEM ----
 
@@ -19,8 +20,6 @@ export interface LauncherAlert {
 type AddAlert = (variant: Variant, content: ReactNode) => void
 
 export const Alerts = React.createContext<AddAlert>(() => {});
-
-
 
 // ---- CONSOLE LOG SYSTEM ----
 
@@ -43,6 +42,11 @@ export const useConsole = () => useContext(ConsoleChannel)
 
 // ---- APP ENTRY ----
 
+interface Task {
+    name: string,
+    channel: Channel
+}
+
 export default function MyApp({Component, pageProps}: AppProps) {
     const [alertCount, setAlertCount] = useState(0);
     const [alerts, setAlerts] = useState<LauncherAlert[]>([]);
@@ -64,6 +68,17 @@ export default function MyApp({Component, pageProps}: AppProps) {
             setAlerts((newAlerts) => newAlerts.filter((t) => t.id != id))
         }, ALERT_TIMEOUT * 1000);
     }
+
+    const [tasks, setTasks] = useState<Task[]>([])
+
+    useEffect(() => {
+        listen<Task>("tasks", (it) => {
+
+            setTasks((prev) => {
+                return [...prev, it.payload]
+            })
+        }).catch(() => {})
+    })
 
     return <div data-bs-theme="dark">
         <ThemeProvider>
@@ -88,6 +103,12 @@ export default function MyApp({Component, pageProps}: AppProps) {
                                 {value.content}
                             </Alert>
                         )}
+                        {/*{tasks.map((value, index) => {*/}
+                        {/*    */}
+                        {/*    return <Alert key={index} variant={""} dismissible>*/}
+                        {/*        {value.content}*/}
+                        {/*    </Alert>*/}
+                        {/*})}*/}
                     </div>
                 </Alerts.Provider>
             </ConsoleChannel.Provider>

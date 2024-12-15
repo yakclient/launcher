@@ -1,15 +1,15 @@
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::{create_dir_all, write, File};
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use serde::de::DeserializeOwned;
-use serde_json::Value;
 
 #[derive(Serialize, Deserialize)]
 pub struct PersistedData {
-    content: Arc<Mutex< HashMap<String, Value>>>
+    content: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 impl PersistedData {
@@ -19,12 +19,15 @@ impl PersistedData {
         }
     }
 
-    pub fn put_value<T, S: AsRef<str>>(& self, name: S, value: T) -> & Self
+    pub fn put_value<T, S: AsRef<str>>(&self, name: S, value: T) -> &Self
     where
         T: serde::Serialize,
     {
         let value = serde_json::to_value(&value).expect("Failed to serialize");
-        self.content.lock().unwrap().insert(name.as_ref().to_string(), value);
+        self.content
+            .lock()
+            .unwrap()
+            .insert(name.as_ref().to_string(), value);
         self
     }
 
@@ -58,7 +61,8 @@ impl PersistedData {
         };
         let file = File::open(path)?;
 
-        let data: PersistedData = serde_json::from_reader(file).expect("Unable to deserialize data to JSON");
+        let data: PersistedData =
+            serde_json::from_reader(file).expect("Unable to deserialize data to JSON");
 
         Ok(data)
     }
@@ -84,8 +88,7 @@ mod tests {
     fn test_persist() {
         let mut data = PersistedData::new_empty();
         let expected_ret = "Hey how are you?".to_string();
-        data
-            .put_value("test", expected_ret.clone());
+        data.put_value("test", expected_ret.clone());
 
         data.persist_to("tests/config.json").unwrap();
         let data = PersistedData::read_from("tests/config.json").unwrap();

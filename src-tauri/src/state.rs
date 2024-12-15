@@ -1,5 +1,5 @@
 use std::process::Child;
-use std::sync::{Arc};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -31,7 +31,11 @@ pub struct LaunchInstance {
 
 impl LaunchInstance {
     pub async fn shutdown(&self) {
-        self.child.lock().await.kill().expect("Failed to kill process");
+        self.child
+            .lock()
+            .await
+            .kill()
+            .expect("Failed to kill process");
     }
 }
 
@@ -44,8 +48,8 @@ pub enum RepositoryType {
 impl RepositoryType {
     pub fn cli_arg(&self) -> &'static str {
         match self {
-            RepositoryType::REMOTE => { "default" }
-            RepositoryType::LOCAL => { "local" }
+            RepositoryType::REMOTE => "default",
+            RepositoryType::LOCAL => "local",
         }
     }
 }

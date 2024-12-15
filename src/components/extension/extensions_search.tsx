@@ -6,11 +6,11 @@ import {
     ExtensionMetadata,
     ExtensionPointer,
     ExtensionState,
-    ManagedExtensionMetadata, RepositoryType,
+    ManagedExtensionMetadata,
     SearchResult,
     WrappedExtension
 } from "@/types";
-import ExtensionCard from "@/components/extension/extension_card";
+import ExtensionCard, {LocalExtensionCard} from "@/components/extension/extension_card";
 import SkeletonExtensionCard from "@/components/extension/skeleton_extension_card";
 
 const queryServer = async (server: string, query: string, page: number = 0, pagination: number = 20): Promise<WrappedExtension[]> => {
@@ -47,7 +47,7 @@ const queryServer = async (server: string, query: string, page: number = 0, pagi
             pointer: {
                 descriptor: managed.id.group + ":" + managed.id.name + ":" + release,
                 repository: server + "/registry",
-                repository_type: RepositoryType.REMOTE
+                repository_type: "REMOTE"
             } as ExtensionPointer
         };
     }))
@@ -66,6 +66,7 @@ const queryServer = async (server: string, query: string, page: number = 0, pagi
 }
 
 const ExtensionSearch: React.FC = () => {
+    const [extensionContent, setExtensionContent] = useState<React.ReactNode>(null)
     const [extensions, setExtensions] = useState<WrappedExtension[]>([])
     const [searchTarget, setSearchTarget] = useState("");
     const [repositories, setRepositories] = useState<string[]>([
@@ -96,15 +97,43 @@ const ExtensionSearch: React.FC = () => {
             })
     }, [])
 
-    let setupExtensions = (): React.ReactNode => {
-        if (queryingServer) {
-            return <SkeletonExtensionCard/>
+    useEffect(() => {
+        let splitTarget = searchTarget.split(":")
+        if (splitTarget.length == 3 && splitTarget[2].length != 0) {
+            (invoke("get_extension_state") as Promise<ExtensionPointer[]>).then((extensions) => {
+                let appliedExtensions = new Set(extensions.map((it) => it.descriptor))
+
+                setExtensionContent(<LocalExtensionCard descriptor={splitTarget} initialState={
+                    appliedExtensions.has(searchTarget) ? ExtensionState.Enabled : ExtensionState.Disabled
+                } onclick={async (state) => {
+                    console.log("Clicked")
+                    let currExtensions = await invoke("get_extension_state") as ExtensionPointer[];
+                    let m2Repo = await invoke("get_maven_local") as string
+
+                    let appliedExtensions = state == ExtensionState.Disabled ?
+                        currExtensions.filter((it) => {
+                            return it.descriptor != searchTarget
+                        }) : ([...currExtensions, {
+                            descriptor: searchTarget,
+                            repository: m2Repo,
+                            repository_type: "LOCAL"
+                        }])
+
+                    console.log(appliedExtensions)
+
+                    await invoke("set_extension_state", {
+                        updated: appliedExtensions
+                    })
+                }}/>)
+            })
+        } else if (queryingServer) {
+            setExtensionContent(<SkeletonExtensionCard/>)
         } else if (extensions.length == 0) {
-            return <div style={{
+            setExtensionContent(<div style={{
                 margin: "20px 0"
-            }}>Nothing found</div>
+            }}>Nothing found</div>)
         } else {
-            return <>
+            setExtensionContent(<>
                 {extensions.map((extension: WrappedExtension, index) => {
                     return <ExtensionCard
                         extension={extension}
@@ -116,7 +145,8 @@ const ExtensionSearch: React.FC = () => {
                                     return it.descriptor != extension.pointer.descriptor
                                 }) : ([...currExtensions, {
                                     descriptor: extension.pointer.descriptor,
-                                    repository: extension.pointer.repository
+                                    repository: extension.pointer.repository,
+                                    repository_type: "REMOTE"
                                 }])
 
                             await invoke("set_extension_state", {
@@ -126,9 +156,9 @@ const ExtensionSearch: React.FC = () => {
                         key={index}
                     />
                 })}
-            </>
+            </>)
         }
-    }
+    }, [extensions, searchTarget])
 
     return <>
         <form onSubmit={(it) => {
@@ -213,7 +243,7 @@ const ExtensionSearch: React.FC = () => {
             </Modal.Body>
         </Modal>
         {
-            setupExtensions()
+            extensionContent
         }
     </>
 }

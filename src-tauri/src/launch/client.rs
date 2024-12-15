@@ -1,19 +1,18 @@
-use std::cmp::min;
-use std::{env, io};
-use std::fs::{create_dir_all, read_to_string, File};
-use std::io::Cursor;
-use std::path::{Path, PathBuf};
 use crate::extframework_dir;
 use crate::launch::ClientError;
 use crate::launch::ClientError::{IoError, NetworkError};
+use std::cmp::min;
+use std::fs::{create_dir_all, read_to_string, File};
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
+use std::{env, io};
 
 fn client_url(version: String) -> String {
     format!("https://maven.extframework.dev/releases/dev/extframework/client/{version}/client-{version}-all.jar", version = version)
 }
 
 pub async fn get_client(version: String) -> reqwest::Result<PathBuf> {
-    let path = extframework_dir()
-        .join(format!("client-{}.jar", version));
+    let path = extframework_dir().join(format!("client-{}.jar", version));
 
     if !Path::new(path.as_os_str()).exists() {
         println!("Downloading client");
@@ -22,10 +21,7 @@ pub async fn get_client(version: String) -> reqwest::Result<PathBuf> {
     Ok(path)
 }
 
-async fn download_client(
-    version: String,
-    path: &PathBuf,
-) -> reqwest::Result<()> {
+async fn download_client(version: String, path: &PathBuf) -> reqwest::Result<()> {
     let client_url = client_url(version);
     let response = reqwest::get(client_url).await?;
 
@@ -38,19 +34,21 @@ async fn download_client(
     Ok(())
 }
 
-
-pub async fn get_client_version(
-    path: &PathBuf,
-) -> Result<String, ClientError> {
+pub async fn get_client_version(path: &PathBuf) -> Result<String, ClientError> {
     let path = path.join("client_version.txt");
 
     let download_result: Result<(), ClientError> = {
         let request = reqwest::get("https://static.extframework.dev/client/latest_version")
-            .await.map_err(NetworkError)?;
+            .await
+            .map_err(NetworkError)?;
 
         let bytes = request.bytes().await.map_err(NetworkError)?;
 
-        io::copy(&mut Cursor::new(bytes), &mut File::create(&path).map_err(IoError)?).map_err(IoError)?;
+        io::copy(
+            &mut Cursor::new(bytes),
+            &mut File::create(&path).map_err(IoError)?,
+        )
+        .map_err(IoError)?;
         Ok(())
     };
 
@@ -60,16 +58,16 @@ pub async fn get_client_version(
         }
     }
 
-    read_to_string(&path).map(|it| {
-        it.trim().to_string()
-    }).map_err(IoError)
+    read_to_string(&path)
+        .map(|it| it.trim().to_string())
+        .map_err(IoError)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::launch::client::{get_client, get_client_version};
     use std::fs::create_dir_all;
     use std::path::PathBuf;
-    use crate::launch::client::{get_client, get_client_version};
 
     #[tokio::test]
     async fn test_client_download() {
