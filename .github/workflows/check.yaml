@@ -1,8 +1,8 @@
-name: build
+name: check
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - staging
 
 permissions:
   contents: write
@@ -52,7 +52,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ env.CERT_ID }}
         with:
-          tagName: app-v__VERSION__
+          tagName: app-staging-v__VERSION__
           releaseName: 'YakClient Launcher v__VERSION__'
           releaseBody: 'Updates made'
           releaseDraft: true
@@ -79,7 +79,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__
+          tagName: app-staging-v__VERSION__
           releaseName: 'YakClient Launcher v__VERSION__'
           releaseBody: 'Updates made'
           releaseDraft: true
