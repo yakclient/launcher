@@ -1,15 +1,11 @@
-import styles from "./index.module.sass"
+import styles from "./login.module.sass"
 import bg_png from "../../public/icons/login_bg.png"
 import Image from "next/image";
 import {Alert, Button} from "react-bootstrap";
 import {invoke} from "@tauri-apps/api/core";
 import {Alerts} from "@/pages/_app";
 import {useRouter} from "next/router";
-import Link from "next/link";
-import {router} from "next/client";
 import {useEffect} from "react";
-
-
 
 const Login: React.FC = () => {
     const router = useRouter();

@@ -1,20 +1,20 @@
-use std::{io, thread};
 use std::env::args;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::str::from_utf8;
-use std::sync::{Arc};
+use std::sync::Arc;
+use std::{io, thread};
 
+use crate::launch::java::get_java_command;
+use crate::launch::ClientError;
+use crate::launch::ClientError::{IoError, JreInstallError};
+use crate::minecraft_dir;
+use crate::state::{Extension, MinecraftAuthentication};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::Manager;
 use tokio::sync::Mutex;
-use crate::launch::ClientError;
-use crate::launch::ClientError::{IoError, JreInstallError};
-use crate::launch::java::get_java_command;
-use crate::minecraft_dir;
-use crate::state::{Extension, MinecraftAuthentication};
 
 #[derive(Clone, Serialize)]
 pub struct ProcessStdoutEvent {
@@ -23,19 +23,21 @@ pub struct ProcessStdoutEvent {
 }
 
 fn add_env_args(legacy: bool, command: &mut Command) -> &mut Command {
-    #[cfg(target_os = "macos")] {
+    #[cfg(target_os = "macos")]
+    {
         if (!legacy) {
-            command
-                .arg("-XstartOnFirstThread");
+            command.arg("-XstartOnFirstThread");
         }
     }
 
     let bin_path = minecraft_dir().join("bin");
     command
-        .arg(format!("-Djava.library.path={}", bin_path.to_str().unwrap()))
+        .arg(format!(
+            "-Djava.library.path={}",
+            bin_path.to_str().unwrap()
+        ))
         // .arg("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005")
         .arg("-jar")
-
 }
 
 struct ProcessStdEmitter {
@@ -46,12 +48,12 @@ struct ProcessStdEmitter {
 impl<'a> Write for ProcessStdEmitter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         print!("{}", from_utf8(buf).unwrap());
-        self.handle_ref.send(
-            ProcessStdoutEvent {
+        self.handle_ref
+            .send(ProcessStdoutEvent {
                 is_err: self.is_err,
                 frag: Vec::from(buf),
-            },
-        ).unwrap();
+            })
+            .unwrap();
 
         return Ok(buf.len());
     }
@@ -71,9 +73,7 @@ pub async fn launch_process(
     // TODO cleaner version support
     let legacy = version == "1.8.9";
 
-    let java_version = if legacy {
-        "8"
-    } else { "21" };
+    let java_version = if legacy { "8" } else { "21" };
 
     let os_name = if cfg!(target_os = "windows") {
         "windows"
@@ -90,15 +90,15 @@ pub async fn launch_process(
         "x64"
     };
 
-    let mut command = get_java_command(java_version, os_name, os_arch, java_dir).await.map_err(|it| {
-        JreInstallError(it)
-    })?;
+    let mut command = get_java_command(java_version, os_name, os_arch, java_dir)
+        .await
+        .map_err(|it| JreInstallError(it))?;
     add_env_args(legacy, &mut command);
     command
         .arg(client_path.to_str().unwrap())
-        .arg(format!("--version=extframework-{}", version))
-        // Better stacktraces + TODO fixes access widening bug
-        .arg("--mapping-namespace=mojang:deobfuscated");
+        .arg(format!("--version=extframework-{}", version));
+    // Better stacktraces + TODO fixes access widening bug
+    // .arg("--mapping-namespace=mojang:deobfuscated");
 
     if let Some(auth) = auth {
         command
@@ -107,28 +107,25 @@ pub async fn launch_process(
             .arg(format!("--username={}", auth.profile.name));
     }
 
-    command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     for x in extensions {
         command.arg("-e");
         command.arg(x.descriptor.as_str());
         command.arg("-r");
-        command.arg(format!("{}@{}", x.repository_type.cli_arg(), x.repository.as_str()));
+        command.arg(format!(
+            "{}@{}",
+            x.repository_type.cli_arg(),
+            x.repository.as_str()
+        ));
     }
 
-    let child = command
-        .spawn()
-        .map_err(|e| IoError(e))?;
+    let child = command.spawn().map_err(|e| IoError(e))?;
 
     Ok(child)
 }
 
-pub fn capture_child(
-    mut child: Child,
-    channel: Channel<ProcessStdoutEvent>,
-) -> Arc<Mutex<Child>> {
+pub fn capture_child(mut child: Child, channel: Channel<ProcessStdoutEvent>) -> Arc<Mutex<Child>> {
     // Moved into the spawned thread.
     let mut child_stdout = child.stdout.take().unwrap();
     let mut child_stderr = child.stderr.take().unwrap();

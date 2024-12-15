@@ -24,6 +24,63 @@ export const ExtensionButton: React.FC<{
     }
 }
 
+
+export const LocalExtensionCard: React.FC<{
+    descriptor: string[]
+    initialState: ExtensionState,
+    onclick: (state: ExtensionState) => void,
+}> = ({descriptor, initialState, onclick}) => {
+    let [state, setState] = useState(initialState)
+
+    let [group, name, version] = descriptor
+
+    return <Card style={{
+        margin: "10px 0",
+    }} className="flex-row">
+        <Card.Body style={{padding: "10px"}}>
+            <Stack direction="horizontal" gap={3} style={{
+                margin: "10px 0"
+            }}>
+                <Image
+                    alt={""}
+                    src={defaultExtensionImg}
+                    height={70}
+                />
+                <div>
+                    <Card.Title as="h1" className="h1 h1-sm">
+                        {name}
+                    </Card.Title>
+
+                    <Card.Text>
+                        By {group}
+                        <Badge pill bg="secondary" style={{
+                            marginLeft: "10px"
+                        }}>
+                            v{version}
+                        </Badge>
+                    </Card.Text>
+                </div>
+            </Stack>
+
+            <Card.Text style={{
+                margin: "25px 0"
+            }}>
+                An extension hosted in your local repository.
+            </Card.Text>
+
+            <ExtensionButton state={state} onclick={(newState) => {
+                setState(newState)
+                onclick(newState)
+            }}/>
+
+            <Badge pill bg="danger" style={{
+                marginLeft: "10px",
+                fontSize: "15px"
+            }}>LOCAL</Badge>
+        </Card.Body>
+    </Card>
+}
+
 const ExtensionCard: React.FC<{
     onclick: (state: ExtensionState) => void,
     extension: WrappedExtension
@@ -35,21 +92,18 @@ const ExtensionCard: React.FC<{
     const maxDescLength = 200
 
     let description = extension.metadata.description
-    if (description.length > maxDescLength) {
+    if (description && description.length > maxDescLength) {
         description = description.substring(0, maxDescLength - 3) + "..."
     }
 
     return <Card style={{
         margin: "10px 0",
-        // maxHeight: "200px",
     }} className="flex-row">
-
-
         <Card.Body style={{padding: "10px"}}>
 
             <Stack direction="horizontal" gap={3}>
                 <Image
-                    alt={"OK?"}
+                    alt={""}
                     src={extension.metadata.icon ?? defaultExtensionImg}
                     height={70}
                 />

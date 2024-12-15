@@ -1,6 +1,6 @@
 {
   "name": "yakclient-launcher",
-  "version": "1.0.29",
+  "version": "1.0.30",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,6 +12,8 @@
   "dependencies": {
     "@tauri-apps/api": "^2.0.1",
     "@tauri-apps/cli": "^2.0.1",
+    "@tauri-apps/plugin-process": "^2.2.0",
+    "@tauri-apps/plugin-updater": "^2.3.0",
     "bootstrap": "^5.3.3",
     "next": "14.2.6",
     "next-cli": "^1.0.0",

@@ -1,0 +1,36 @@
+#container
+  position: absolute
+  top: 10%
+  left: 50%
+  width: 100vw
+  transform: translate(-50%, 0)
+  display: block
+  align-content: center
+  justify-content: center
+  text-align: center
+  font-weight: bold
+  img
+    z-index: 50
+  h2
+    color: #a3a3a3
+  #logo_container
+    left: 50%
+    margin: 20px 0
+    width: 100px
+    height: 100px
+    transform: translate(-50%, 0)
+    position: relative
+    justify-content: center
+    text-align: center
+    img
+      position: absolute
+      top: 0
+      left: 0
+    img:nth-child(1)
+      transform: scale(1.1)
+      filter: blur(10px)
+      will-change: filter
+      z-index: 1
+    img:nth-child(2)
+      z-index: 5
+
