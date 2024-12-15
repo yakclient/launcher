@@ -1,6 +1,5 @@
 {
   "name": "yakclient-launcher",
-  "version": "1.0.30",
   "private": true,
   "scripts": {
     "dev": "next dev",

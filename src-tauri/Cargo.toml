@@ -1,7 +1,6 @@
 [package]
-name = "app"
-version = "1.0.30"
-description = "Yakclient launcher backend"
+name = "launcher"
+version = "0.0.1"
 authors = ["Durgan McBroom"]
 license = ""
 repository = ""

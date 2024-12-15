@@ -1,6 +1,5 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![feature(async_closure)]
 
 use crate::extensions::{get_extension_state, get_maven_local, set_extension_state};
 use crate::launch::{end_launch_process, launch_minecraft};
