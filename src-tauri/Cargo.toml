@@ -1,5 +1,5 @@
 [package]
-name = "launcher"
+name = "app"
 version = "0.0.1"
 authors = ["Durgan McBroom"]
 license = ""
