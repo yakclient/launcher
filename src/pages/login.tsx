@@ -65,7 +65,7 @@ const Login: React.FC = () => {
                                 invoke("microsoft_login")
                                     .then(() => {
                                         addAlert(
-                                            "success",
+                                            "dark",
                                             <>
                                                 <Alert.Heading>Success!</Alert.Heading>
                                                 <hr/>

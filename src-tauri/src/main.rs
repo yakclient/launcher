@@ -8,15 +8,19 @@ use crate::oauth::{get_mc_profile, microsoft_login, use_no_auth};
 use crate::open_url::open_url;
 use crate::persist::PersistedData;
 use crate::state::{Extension, LaunchInstance, MinecraftAuthentication, OAuthConfig};
+use crate::task::channel_progress::{register_task_channel, ChannelProgressBuilder, ChannelProgressManager};
+use crate::task::TaskManager;
 use discord_rich_presence::activity::Timestamps;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use log::debug;
+use std::collections::HashMap;
 use std::error::Error;
 use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use std::{env, io};
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -28,6 +32,7 @@ mod open_url;
 mod persist;
 mod state;
 mod task;
+mod util;
 
 pub fn minecraft_dir() -> PathBuf {
     let path = if cfg!(target_os = "windows") {
@@ -95,8 +100,30 @@ fn main() {
             open_url,
             get_mc_profile,
             get_maven_local,
-            leave_splashscreen
+            leave_splashscreen,
+            register_task_channel
         ])
+        .setup(|app| {
+            let handle = app.handle().clone();
+
+            let manager = ChannelProgressManager {
+                channels: Mutex::new(HashMap::new()),
+            };
+
+            let manager = Arc::new(manager);
+            let tasks = TaskManager {
+                progress_builder: Box::new(ChannelProgressBuilder {
+                    id: 0,
+                    manager: Arc::clone(&manager),
+                    handle,
+                })
+            };
+
+            app.manage(Arc::clone(&manager));
+            app.manage(Mutex::new(tasks));
+
+            Ok(())
+        })
         .on_window_event(|app_handle, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let persisted_data = app_handle.state::<PersistedData>();

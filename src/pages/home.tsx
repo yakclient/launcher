@@ -4,6 +4,12 @@ import Extensions from "@/components/extension/extensions_search";
 import Mods from "@/components/mod/mods_search";
 import Installed from "@/components/installed";
 import Market from "@/components/market";
+import {useEffect} from "react";
+import {listen} from "@tauri-apps/api/event";
+
+
+
+
 
 export default function Home() {
     return (

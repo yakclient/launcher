@@ -1,8 +1,10 @@
-name: build
+name: check
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  workflow_dispatch:
+
+#  push:
+#    branches:
+#      - staging
 
 permissions:
   contents: write
@@ -20,6 +22,13 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
     steps:
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ./node_modules
+            ./src-tauri/target/release/
+          key: 'build-mac'
       - uses: actions/checkout@v3
       - name: Setup node
         uses: actions/setup-node@v4
@@ -54,7 +63,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: app-v__VERSION__
+          tagName: app-staging-v__VERSION__
           releaseName: 'YakClient Launcher v__VERSION__'
           releaseBody: 'Updates made'
           releaseDraft: true
@@ -83,7 +92,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: app-v__VERSION__
+          tagName: app-staging-v__VERSION__
           releaseName: 'YakClient Launcher v__VERSION__'
           releaseBody: 'Updates made'
           releaseDraft: true

@@ -2,11 +2,12 @@ import React from "react";
 import {Badge, Button, Card, CardBody, Stack} from "react-bootstrap";
 import Image from "next/image";
 import defaultExtensionImg from "../../public/icons/extension_icon.png";
+import {bottom} from "@popperjs/core";
 
 type Article = {
     title: string,
     author: string
-    image: string,
+    image: string | undefined,
     description: string,
 }
 
@@ -24,6 +25,12 @@ const News: React.FC = () => {
             image: "https://cdn.modrinth.com/data/P7dR8mSH/icon.png",
             description: "Fabric mods are now supported! (despite many bugs). Minecraft 1.8.9 support added, UI updates, Modrinth compatibility added."
         },
+        {
+            title: "Auto updating, Windows bug fixes",
+            author: "Durgan McBroom",
+            image: undefined,
+            description: "YakClient will now automatically update itself, and some major internal fixes/improvements."
+        },
     ]
 
     return (
@@ -35,8 +42,10 @@ const News: React.FC = () => {
                     margin: "10px 0"
                 }} className="flex-row" key={index}>
                     <Card.Body>
-                        <Stack direction="horizontal" gap={3}>
-                            <Image
+                        <Stack direction="horizontal" gap={3} style={{
+                            marginBottom: "10px"
+                        }}>
+                            {article.image ? <Image
                                 src={article.image}
                                 style={{
                                     margin: "auto 0",
@@ -45,7 +54,7 @@ const News: React.FC = () => {
                                 alt={""}
                                 height={100}
                                 width={100}
-                            />
+                            /> : <></>}
                             <div>
                                 <Card.Title as="h4" className="h5 h4-sm">
                                     {article.title}

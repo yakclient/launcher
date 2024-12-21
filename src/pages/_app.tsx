@@ -43,8 +43,20 @@ export const useConsole = () => useContext(ConsoleChannel)
 // ---- APP ENTRY ----
 
 interface Task {
+    event: TaskEvent,
+    progress: number,
+    err: string | null,
+    channel: Channel<TaskProgressData>
+}
+
+interface TaskEvent {
     name: string,
-    channel: Channel
+    id: number,
+}
+
+interface TaskProgressData {
+    progress: number,
+    error: string | null,
 }
 
 export default function MyApp({Component, pageProps}: AppProps) {
@@ -72,12 +84,53 @@ export default function MyApp({Component, pageProps}: AppProps) {
     const [tasks, setTasks] = useState<Task[]>([])
 
     useEffect(() => {
-        listen<Task>("tasks", (it) => {
+        let unlisten = listen<TaskEvent>("new-task", ({payload}) => {
+            const channel = new Channel<TaskProgressData>()
+            const task: Task = {
+                event: payload,
+                progress: 0,
+                err: null,
+                channel: channel
+            }
 
-            setTasks((prev) => {
-                return [...prev, it.payload]
+            channel.onmessage = (update: TaskProgressData) => {
+                setTasks((prev) => {
+                    return prev.map((it) => {
+                        if (it.event.id == task.event.id) {
+
+                            it.progress = update.progress
+
+                            if (update.error)
+                                it.err = update.error
+
+                            if (Math.floor(update.progress) == 1) {
+                                setTimeout(() => {
+                                    setTasks((prev1) => prev1.filter((t) => {
+                                        return t.event.id != task.event.id
+                                    }))
+                                }, it.err ? 4000 : 1000)
+                            }
+                        }
+
+                        return it
+                    })
+                })
+            }
+
+            invoke("register_task_channel", {
+                id: task.event.id,
+                channel: channel
+            }).then(() => {
+                setTasks((prev) => {
+                    return [...prev, task]
+                })
             })
         }).catch(() => {})
+
+        return () => {
+            // @ts-ignore
+            unlisten.then(remove => remove ? remove() : {})
+        };
     })
 
     return <div data-bs-theme="dark">
@@ -103,12 +156,18 @@ export default function MyApp({Component, pageProps}: AppProps) {
                                 {value.content}
                             </Alert>
                         )}
-                        {/*{tasks.map((value, index) => {*/}
-                        {/*    */}
-                        {/*    return <Alert key={index} variant={""} dismissible>*/}
-                        {/*        {value.content}*/}
-                        {/*    </Alert>*/}
-                        {/*})}*/}
+                        {tasks.map((value) => {
+                            console.log(value.progress * 100)
+                            return <Alert key={value.event.id} variant={"dark"}>
+                                <h2>{value.event.name}</h2>
+                                <ProgressBar style={{
+                                    margin: "10px 0"
+                                }} animated now={value.progress * 100} variant={value.err ? "danger" : "success"}/>
+                                <i>{
+                                    value.err ?? (Math.floor(value.progress * 100) + "% Done")
+                                }</i>
+                            </Alert>
+                        })}
                     </div>
                 </Alerts.Provider>
             </ConsoleChannel.Provider>
