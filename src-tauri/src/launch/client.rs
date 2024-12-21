@@ -34,33 +34,34 @@ async fn download_client(version: String, path: &PathBuf) -> reqwest::Result<()>
     Ok(())
 }
 
-pub async fn get_client_version(path: &PathBuf) -> Result<String, ClientError> {
-    let path = path.join("client_version.txt");
-
-    let download_result: Result<(), ClientError> = {
-        let request = reqwest::get("https://static.extframework.dev/client/latest_version")
-            .await
-            .map_err(NetworkError)?;
-
-        let bytes = request.bytes().await.map_err(NetworkError)?;
-
-        io::copy(
-            &mut Cursor::new(bytes),
-            &mut File::create(&path).map_err(IoError)?,
-        )
-        .map_err(IoError)?;
-        Ok(())
-    };
-
-    if let Err(it) = download_result {
-        if !&path.exists() {
-            return Err(it);
-        }
-    }
-
-    read_to_string(&path)
-        .map(|it| it.trim().to_string())
-        .map_err(IoError)
+pub async fn get_client_version() -> Result<String, ClientError> {
+    Ok("1.0.12-BETA".to_string())
+    // let path = path.join("client_version.txt");
+    //
+    // let download_result: Result<(), ClientError> = {
+    //     let request = reqwest::get("https://static.extframework.dev/client/latest_version")
+    //         .await
+    //         .map_err(NetworkError)?;
+    //
+    //     let bytes = request.bytes().await.map_err(NetworkError)?;
+    //
+    //     io::copy(
+    //         &mut Cursor::new(bytes),
+    //         &mut File::create(&path).map_err(IoError)?,
+    //     )
+    //     .map_err(IoError)?;
+    //     Ok(())
+    // };
+    //
+    // if let Err(it) = download_result {
+    //     if !&path.exists() {
+    //         return Err(it);
+    //     }
+    // }
+    //
+    // read_to_string(&path)
+    //     .map(|it| it.trim().to_string())
+    //     .map_err(IoError)
 }
 
 #[cfg(test)]
@@ -78,6 +79,6 @@ mod tests {
     async fn test_client_version() {
         let buf = PathBuf::from("client");
         create_dir_all(&buf).unwrap();
-        println!("{}", get_client_version(&buf).await.unwrap());
+        println!("{}", get_client_version().await.unwrap());
     }
 }

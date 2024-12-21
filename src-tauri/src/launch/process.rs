@@ -1,3 +1,11 @@
+use crate::launch::java::get_java_command;
+use crate::launch::minecraft::{Argument, Arguments, FormatForCommand, MinecraftEnvironment, ValueType};
+use crate::launch::ClientError;
+use crate::launch::ClientError::{IoError, JreInstallError};
+use crate::minecraft_dir;
+use crate::state::{Extension, MinecraftAuthentication};
+use serde::Serialize;
+use std::collections::HashMap;
 use std::env::args;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -5,13 +13,6 @@ use std::process::{Child, Command, Stdio};
 use std::str::from_utf8;
 use std::sync::Arc;
 use std::{io, thread};
-
-use crate::launch::java::get_java_command;
-use crate::launch::ClientError;
-use crate::launch::ClientError::{IoError, JreInstallError};
-use crate::minecraft_dir;
-use crate::state::{Extension, MinecraftAuthentication};
-use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -22,23 +23,27 @@ pub struct ProcessStdoutEvent {
     pub frag: Vec<u8>,
 }
 
-fn add_env_args(legacy: bool, command: &mut Command) -> &mut Command {
-    #[cfg(target_os = "macos")]
-    {
-        if (!legacy) {
-            command.arg("-XstartOnFirstThread");
-        }
-    }
-
-    let bin_path = minecraft_dir().join("bin");
-    command
-        .arg(format!(
-            "-Djava.library.path={}",
-            bin_path.to_str().unwrap()
-        ))
-        // .arg("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005")
-        .arg("-jar")
-}
+// fn add_env_args<'a, 'b>(
+//     legacy: bool,
+//     command: &'b mut Command,
+//     env: &'a MinecraftEnvironment
+// ) -> &'b mut Command {
+//     #[cfg(target_os = "macos")]
+//     {
+//         if !legacy {
+//             command.arg("-XstartOnFirstThread");
+//         }
+//     }
+//
+//     let bin_path = minecraft_dir().join("bin");
+//     command
+//         .arg(format!(
+//             "-Djava.library.path={}",
+//             bin_path.to_str().unwrap()
+//         ))
+//         // .arg("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005")
+//         .arg("-jar")
+// }
 
 struct ProcessStdEmitter {
     handle_ref: Channel<ProcessStdoutEvent>,
@@ -69,11 +74,12 @@ pub async fn launch_process(
     client_path: PathBuf,
     auth: &Option<MinecraftAuthentication>,
     extensions: &Vec<Extension>,
+    env: &MinecraftEnvironment
 ) -> Result<Child, ClientError> {
     // TODO cleaner version support
     let legacy = version == "1.8.9";
 
-    let java_version = if legacy { "8" } else { "21" };
+    let java_version = env.java_version.major_version.to_string();
 
     let os_name = if cfg!(target_os = "windows") {
         "windows"
@@ -82,30 +88,80 @@ pub async fn launch_process(
     } else {
         "linux"
     };
+
     let os_arch = if cfg!(target_arch = "x86_64") {
         "x64"
-    } else if (cfg!(target_arch = "aarch64") && !legacy) {
+    } else if cfg!(target_arch = "aarch64") && !legacy {
         "aarch64"
     } else {
         "x64"
     };
 
-    let mut command = get_java_command(java_version, os_name, os_arch, java_dir)
-        .await
-        .map_err(|it| JreInstallError(it))?;
-    add_env_args(legacy, &mut command);
-    command
-        .arg(client_path.to_str().unwrap())
-        .arg(format!("--version=extframework-{}", version));
-    // Better stacktraces + TODO fixes access widening bug
-    // .arg("--mapping-namespace=mojang:deobfuscated");
+    let mut classpath = env.libraries.clone();
+    classpath.push(env.client_jar.clone());
+    // classpath.push(client_path);
+
+    let mut arg_variables = HashMap::from([
+        ("version", version.clone()),
+        ("version_name", version),
+        ("game_directory", minecraft_dir().to_str().unwrap().to_string()),
+        ("assets_root", env.asset_path.to_str().unwrap().to_string()),
+        ("assets_index_name", env.asset_index_name.clone()),
+        ("natives_directory", env.natives_path.to_str().unwrap().to_string()),
+        ("launcher_name", "yakclient".to_string()),
+        ("classpath", "~/nothing.jar".to_string()) // Just any temporary placeholder
+        // ("classpath",
+    ]);
 
     if let Some(auth) = auth {
-        command
-            .arg(format!("--accessToken={}", auth.access_token))
-            .arg(format!("--uuid={}", auth.profile.id))
-            .arg(format!("--username={}", auth.profile.name));
+        arg_variables.insert("auth_player_name", auth.profile.name.clone());
+        arg_variables.insert("auth_uuid", auth.profile.id.clone());
+        arg_variables.insert("auth_access_token", auth.access_token.clone());
     }
+
+    let mut command = get_java_command(java_version.as_str(), os_name, os_arch, java_dir)
+        .await
+        .map_err(|it| JreInstallError(it))?;
+
+    // fn should_be_alone(
+    //     a: &Argument,
+    // ) -> bool {
+    //     match a {
+    //         Argument::Value(value) => {
+    //             if let ValueType::String(s) = value {
+    //                 !s.contains("=")
+    //             } else { true }
+    //         }
+    //         Argument::ArgumentWithRules { rules, value } => {
+    //             if let ValueType::String(s) = value {
+    //                 !s.contains("=")
+    //             } else { true }
+    //         }
+    //     }
+    // }
+
+    env.arguments.jvm
+        // .chunk_by(|a, b| !(should_be_alone(a) && should_be_alone(b)))
+        .apply(
+            &mut command,
+            &arg_variables,
+        );
+
+    command
+        .arg("-jar")
+        .arg(client_path.to_str().unwrap())
+        .arg("--main-class")
+        .arg(&env.main_class)
+        .arg("--classpath")
+        .arg(classpath.iter().map(|s| s.to_str().unwrap().to_string()).collect::<Vec<String>>().join(":"));
+
+    env.arguments.game
+        .chunks(2)
+        .collect::<Vec<&[Argument]>>()
+        .apply(
+            &mut command,
+            &arg_variables,
+        );
 
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
 

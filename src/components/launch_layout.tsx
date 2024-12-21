@@ -3,13 +3,14 @@
 import Image from "next/image";
 import mc_png from "../../public/icons/mc_png.png"
 import styles from "./launch_layout.module.css"
-import React, {ForwardedRef, LegacyRef, MouseEventHandler, useEffect, useState} from "react";
-import {Alert, Badge, Button, ButtonGroup, Col, Container, Dropdown, Row} from "react-bootstrap";
+import React, {LegacyRef, MouseEventHandler, useEffect, useState} from "react";
+import {Alert, Button, ButtonGroup, Container, Dropdown} from "react-bootstrap";
 import BackgroundGradient from "@/components/bg_gradient";
 import {Channel, invoke} from "@tauri-apps/api/core";
-import {Alerts, ConsoleChannel, ConsoleLine, useConsole} from "@/pages/_app";
+import {Alerts, ConsoleLine, useConsole} from "@/pages/_app";
 import {useRouter} from "next/router";
 import Nav from "@/components/nav";
+import {listen} from "@tauri-apps/api/event";
 
 // eslint-disable-next-line react/display-name
 const ProfileButton = React.forwardRef((
@@ -30,6 +31,10 @@ const ProfileButton = React.forwardRef((
 
 ));
 
+interface TaskEvent {
+    name: string,
+    id: number,
+}
 const LaunchLayout: React.FC<{
     pages: { name: string; content: React.ReactNode; }[],
 }> = ({pages}) => {
@@ -37,11 +42,11 @@ const LaunchLayout: React.FC<{
     let [version, setVersion] = useState<string | null>(null)
     let [uuid, setUuid] = useState("")
 
-    const router = useRouter();
     const console = useConsole()
+    const router = useRouter();
 
     const versions = [
-        "1.21.3", "1.21.2", "1.21.1", "1.8.9"
+        "1.21.4", "1.8.9"
     ]
 
     useEffect(() => {
@@ -65,7 +70,7 @@ const LaunchLayout: React.FC<{
                             </Dropdown.Toggle>
 
                             <Dropdown.Menu>
-                                <Dropdown.Item href={"/"}>Logout</Dropdown.Item>
+                                <Dropdown.Item href={"/login"}>Logout</Dropdown.Item>
                             </Dropdown.Menu>
                         </Dropdown>
                     </div>
@@ -113,8 +118,9 @@ const LaunchLayout: React.FC<{
                                                 {it.toString()}
                                             </>
                                         )
+                                    }).then(() => {
+                                        router.push("/console")
                                     })
-                                    router.push("/console")
                                 }}
                             >
                                 Launch {version == null ? "" : version}

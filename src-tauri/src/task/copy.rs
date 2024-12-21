@@ -1,4 +1,4 @@
-use crate::task::{ProgressTracker, ProgressUpdate, ProgressUpdateAsync};
+use crate::task::Progress;
 use futures::{Stream, StreamExt};
 use std::fmt::{Debug, Display};
 use std::hash::Hasher;
@@ -33,12 +33,12 @@ pub async fn copy_stream_tracking<I, ReadE, E, R, W>(
     stream: &mut R,
     writer: &mut W,
     size: u64, // in bytes
-    tracker: &mut dyn ProgressUpdate,
+    tracker: &mut Progress,
 ) -> Result<(), E>
 where
     I: Into<Vec<u8>>,
     E: From<io::Error> + From<ReadE>,
-    ReadE: Display + 'static,
+    ReadE: Display + Send + Sync + 'static,
     R: Stream<Item = Result<I, ReadE>> + Unpin,
     W: Write,
 {
@@ -53,44 +53,7 @@ where
                     writer.write_all(&read)?;
 
                     bytes_read = bytes_read + read.len() as u64;
-                    tracker.update((bytes_read as f64) / (size as f64));
-                }
-                Err(e) => {
-                    tracker.erroneously_complete(&e);
-                    return Err(e.into());
-                }
-            }
-        } else {
-            return Ok(());
-        }
-    }
-}
-
-pub async fn copy_stream_tracking_async<I, ReadE, E, R, W, P: ProgressUpdateAsync>(
-    stream: &mut R,
-    writer: &mut W,
-    size: u64,
-    tracker: &mut P,
-) -> Result<(), E>
-where
-    I: Into<Vec<u8>>,
-    E: From<io::Error> + From<ReadE>,
-    ReadE: Display + 'static,
-    R: Stream<Item = Result<I, ReadE>> + Unpin,
-    W: Write,
-{
-    let mut bytes_read = 0u64;
-    loop {
-        let read = stream.next().await;
-
-        if let Some(result) = read {
-            match result {
-                Ok(bytes) => {
-                    let read = bytes.into();
-                    writer.write_all(&read)?;
-
-                    bytes_read = bytes_read + read.len() as u64;
-                    tracker.update((bytes_read as f64) / (size as f64)).await
+                    tracker.update((bytes_read as f64) / (size as f64)).await;
                 }
                 Err(e) => {
                     tracker.erroneously_complete(&e).await;
@@ -103,11 +66,47 @@ where
     }
 }
 
+// pub async fn copy_stream_tracking_async<I, ReadE, E, R, W>(
+//     stream: &mut R,
+//     writer: &mut W,
+//     size: u64,
+//     tracker: &mut Progress,
+// ) -> Result<(), E>
+// where
+//     I: Into<Vec<u8>>,
+//     E: From<io::Error> + From<ReadE>,
+//     ReadE: Display + Send + 'static,
+//     R: Stream<Item = Result<I, ReadE>> + Unpin,
+//     W: Write,
+// {
+//     let mut bytes_read = 0u64;
+//     loop {
+//         let read = stream.next().await;
+//
+//         if let Some(result) = read {
+//             match result {
+//                 Ok(bytes) => {
+//                     let read = bytes.into();
+//                     writer.write_all(&read)?;
+//
+//                     bytes_read = bytes_read + read.len() as u64;
+//                     tracker.update((bytes_read as f64) / (size as f64)).await
+//                 }
+//                 Err(e) => {
+//                     tracker.erroneously_complete(&e).await;
+//                     return Err(e.into());
+//                 }
+//             }
+//         } else {
+//             return Ok(());
+//         }
+//     }
+// }
+
 #[cfg(test)]
 pub mod tests {
-    use crate::task::copy::{copy_stream_tracking, copy_stream_tracking_async};
-    use crate::task::tests::PrintingProgressTracker;
-    use std::any::Any;
+    use crate::task::copy::copy_stream_tracking;
+    use crate::task::Progress;
     use std::fmt::{Debug, Display, Formatter};
     use std::fs::{create_dir_all, File};
     use std::path::PathBuf;
@@ -151,7 +150,7 @@ pub mod tests {
         let output_path = PathBuf::from("tests/download.jar");
         let mut file = File::create(output_path).unwrap();
 
-        let mut tracker = PrintingProgressTracker {
+        let mut tracker = Progress::Logging {
             percent: 0.0,
             erroneous: false,
             file: File::create("tests/output.txt").unwrap(),

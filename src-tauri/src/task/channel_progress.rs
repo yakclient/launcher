@@ -1,29 +1,57 @@
-use crate::task::{ProgressTracker, ProgressUpdate};
-use serde::Serialize;
+use crate::task::{Progress, TaskManager, TrackerBuilder};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::{command, AppHandle, Emitter, State};
+use tokio::sync::Mutex;
 
 pub struct ChannelProgressManager {
-    channels: HashMap<u64, Channel<ProgressData>>,
+    pub channels: Mutex<HashMap<u64, Channel<ProgressData>>>,
 }
 
 #[derive(Serialize, Clone)]
 pub struct TaskEvent {
-    name: String,
-    id: u64,
+    pub name: String,
+    pub id: u64,
 }
 
-// #[command]
-// fn register_task_channel(
-//     id: u64,
-//     channel: Channel<ProgressData>,
-//     manager: State<'_, ChannelProgressManager>
-// ) {
-//     manager.channels.insert(id, channel);
-// }
+#[command]
+pub async fn register_task_channel(
+    id: u64,
+    channel: Channel<ProgressData>,
+    manager: State<'_, Arc<ChannelProgressManager>>,
+) -> Result<(), ()> {
+    manager.channels.lock().await.insert(id, channel);
+    Ok(())
+}
+
+pub struct ChannelProgressBuilder {
+    pub id: u64,
+    pub manager: Arc<ChannelProgressManager>,
+    pub handle: AppHandle,
+}
+
+impl TrackerBuilder for ChannelProgressBuilder {
+    fn new(&mut self, name: &str) -> Progress {
+        self.id = self.id + 1;
+
+        self.manager.submit(
+            &self.handle,
+            name.to_string(),
+            self.id,
+        ).expect("Failed to submit progress tracker");
+
+        Progress::Channel {
+            percent: 0.0,
+            erroneous: false,
+            last_sent: 0.0,
+            id: self.id,
+            manager: Arc::clone(&self.manager),
+        }
+    }
+}
 
 impl ChannelProgressManager {
     pub fn new() -> Self {
@@ -33,94 +61,31 @@ impl ChannelProgressManager {
     }
 
     pub fn submit(&self, app: &AppHandle, name: String, id: u64) -> tauri::Result<()> {
-        app.emit("new_task", TaskEvent { name, id })
+        println!("Submitting progress for {}", name);
+        app.emit("new-task", TaskEvent { name, id })
+    }
+
+    pub fn tasks(
+        app: AppHandle,
+    ) -> TaskManager {
+        let manager = ChannelProgressManager {
+            channels: Mutex::new(HashMap::new()),
+        };
+
+        let tasks = TaskManager {
+            progress_builder: Box::new(ChannelProgressBuilder {
+                id: 0,
+                manager: Arc::new(manager),
+                handle: app,
+            })
+        };
+
+        tasks
     }
 }
 
-pub struct ChannelProgress {
-    channel: Option<Channel<ProgressData>>,
-    progress: f64,
-    erroneous: bool,
-    id: u64,
-    manager: Arc<ChannelProgressManager>,
-}
-
-impl ChannelProgress {
-    fn check_handle(&mut self) {
-        if self.channel.is_none() {
-            // if let Some(channel) =  self.manager.channels.get(&self.id) {
-            //     let x: &Channel<ProgressData> = channel;
-            //     let c: Channel<ProgressData>= x.clone();
-            //     self.channel = Some();
-            // }
-        }
-    }
-
-    // pub fn send_new(
-    //     name: String,
-    //     channel: Channel<ProgressData>,
-    //     app: &AppHandle,
-    // ) -> DisplayableProgress {
-    //     app.emit("tasks", TaskEvent {
-    //         name,
-    //         channel,
-    //     });
-    //
-    //     DisplayableProgress {
-    //         channel,
-    //         progress: 0.0,
-    //         erroneous: false,
-    //     }
-    // }
-}
-
-#[derive(Serialize)]
-struct ProgressData {
-    progress: f64,
-    error: Option<String>,
-}
-
-impl ProgressTracker for ChannelProgress {
-    fn percent(&self) -> f64 {
-        self.progress
-    }
-
-    fn completed(&self) -> bool {
-        self.progress == 1.0
-    }
-
-    fn erroneous(&self) -> bool {
-        self.erroneous
-    }
-}
-
-impl ProgressUpdate for ChannelProgress {
-    fn update(&mut self, progress: f64) {
-        self.check_handle();
-        self.progress = progress;
-
-        if let Some(channel) = &self.channel {
-            channel
-                .send(ProgressData {
-                    progress,
-                    error: None,
-                })
-                .expect("Failed to send progress update");
-        }
-    }
-
-    fn erroneously_complete(&mut self, err: &dyn Display) {
-        self.check_handle();
-        self.progress = 1.0;
-        self.erroneous = true;
-
-        if let Some(channel) = &self.channel {
-            channel
-                .send(ProgressData {
-                    progress: 1.0,
-                    error: Some(err.to_string()),
-                })
-                .expect("Failed to send progress update");
-        }
-    }
+#[derive(Clone, Serialize)]
+pub struct ProgressData {
+    pub progress: f64,
+    pub error: Option<String>,
 }

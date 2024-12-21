@@ -1,21 +1,25 @@
 use crate::launch::minecraft::Error::{
     InvalidInfo, Network, Serde, UnknownVersion, ZipExtract, IO,
 };
-use crate::task::copy::{copy_stream_tracking, copy_stream_tracking_async};
-use crate::task::{ChildProgressTracker, ProgressTracker, ProgressUpdateAsync, Task, TaskManager};
+use crate::task::copy::copy_stream_tracking;
+use crate::task::{Progress, Task, TaskManager};
+use crate::util::{map_async, Compress};
+use bytes::Bytes;
 use discord_rich_presence::new_client;
 use futures::future::join_all;
 use futures::stream::{FuturesUnordered, StreamExt};
-use futures::TryFutureExt;
+use futures::{FutureExt, TryFutureExt};
 use serde::{Deserialize, Serialize};
 use serde_urlencoded::{from_bytes, from_reader};
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::fmt::{format, Display, Formatter};
 use std::fs::{create_dir, File};
 use std::future::Future;
 use std::io::{copy, Cursor};
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use tokio::fs::create_dir_all;
 use tokio::io::{self, AsyncWriteExt};
@@ -27,7 +31,7 @@ pub enum Error {
     Network(reqwest::Error),
     Serde(serde_json::error::Error),
     UnknownVersion(String),
-    IO(std::io::Error),
+    IO(io::Error),
     InvalidInfo(&'static str),
     ZipExtract(ZipExtractError),
 }
@@ -61,9 +65,124 @@ impl Display for Error {
 
 #[derive(Debug)]
 pub struct MinecraftEnvironment {
-    client_jar: PathBuf,
-    natives: PathBuf,
-    libraries: Vec<PathBuf>,
+    pub client_jar: PathBuf,
+    pub natives: PathBuf,
+    pub libraries: Vec<PathBuf>,
+    pub asset_path: PathBuf,
+    pub asset_index_name: String,
+    pub natives_path: PathBuf,
+    pub arguments: Arguments,
+    pub main_class: String,
+    pub java_version: JavaVersion,
+}
+
+pub trait FormatForCommand {
+    fn format(
+        &self,
+        values: &HashMap<&str, String>,
+    ) -> Vec<String>;
+
+    fn apply(
+        &self,
+        command: &mut Command,
+        values: &HashMap<&str, String>,
+    ) {
+        let format = self.format(values);
+
+        for arg in format {
+            command.arg(arg);
+        }
+    }
+}
+
+fn replace_option_variable(
+    str: &String,
+    values: &HashMap<&str, String>,
+) -> Option<String> {
+    let mut str = str.to_string();
+
+    loop {
+        if let Some(mut index) = str.find("${") {
+            // Find finds the beginning of the occurrence, we want the end (hence add 2)
+            let closing_brace = str.find('}').unwrap_or(str.len());
+            let name = &str[index + 2..closing_brace];
+            let value = values.get(name);
+
+            if let Some(value) = value {
+                str.replace_range(index..closing_brace + 1, value)
+            } else {
+                return None
+            }
+        } else {
+            return Some(str)
+        }
+    }
+}
+
+// An argument chunk where if not all are substitutable none are returned
+impl FormatForCommand for Vec<&[Argument]> {
+    fn format(&self, values: &HashMap<&str, String>) -> Vec<String> {
+        self.iter().flat_map(|it| {
+            it.iter().map(|arg| {
+                format_arg(&values, arg)
+            }).collect::<Option<Vec<Vec<String>>>>().unwrap_or(vec![])
+        }).flatten().collect()
+    }
+}
+
+fn format_arg(values: &HashMap<&str, String>, arg: &Argument) -> Option<Vec<String>> {
+    match arg {
+        Argument::Value(s) => {
+            match s {
+                ValueType::String(str) => {
+                    replace_option_variable(str, values)
+                        .map(|t| vec![t])
+                }
+                ValueType::Array(vec) => {
+                    vec.iter().map(|s| {
+                        replace_option_variable(s, values)
+                    }).collect::<Option<Vec<String>>>()
+                }
+            }
+        }
+        Argument::ArgumentWithRules {
+            rules, value
+        } => {
+            let os_rule = MinecraftEnvironment::current_os();
+
+            let apply = rules.iter().all(|it| {
+                MinecraftEnvironment::apply_rule(
+                    &os_rule,
+                    it,
+                )
+            });
+
+            if apply {
+                match value {
+                    ValueType::String(str) => {
+                        replace_option_variable(str, &values).map(|t| vec![t])
+                    }
+                    ValueType::Array(vec) => {
+                        vec.iter().map(|it| {
+                            replace_option_variable(it, &values)
+                        }).collect::<Option<Vec<String>>>()
+                    }
+                }
+            } else {
+                None
+            }
+        }
+    }
+}
+
+impl FormatForCommand for Vec<Argument> {
+    fn format(&self, values: &HashMap<&str, String>) -> Vec<String> {
+        self.iter().flat_map(|arg| {
+            let arg = format_arg(values, arg);
+
+            arg.unwrap_or(vec![])
+        }).collect()
+    }
 }
 
 const MINECRAFT_RESOURCES: &'static str = "https://resources.download.minecraft.net";
@@ -87,8 +206,6 @@ impl MinecraftEnvironment {
         let bytes = response.bytes().await.map_err(Network)?;
 
         copy(&mut Cursor::new(bytes), &mut File::create(path)?)?;
-
-        // let info: VersionInfo = serde_json::from_reader(Cursor::new(bytes)).map_err(Serde)?;
 
         Ok(())
     }
@@ -140,27 +257,31 @@ impl MinecraftEnvironment {
             .collect()
     }
 
+    fn apply_rule(os: &OsRule, rule: &Rule) -> bool {
+        if rule.action == "allow" {
+            match &rule.os {
+                Some(os_rule) => {
+                    (os_rule.name == os.name)
+                        && (os_rule.arch.is_none() || os_rule.arch == os.arch)
+                }
+                None => true,
+            }
+        } else {
+            false
+        }
+    }
+
     fn filter_library(os: &OsRule, lib: &Library) -> bool {
         if let Some(rules) = &lib.rules {
             rules.iter().any(|rule| {
-                if rule.action == "allow" {
-                    match &rule.os {
-                        Some(os_rule) => {
-                            (os_rule.name == os.name)
-                                && (os_rule.arch.is_none() || os_rule.arch == os.arch)
-                        }
-                        None => true,
-                    }
-                } else {
-                    false
-                }
+                Self::apply_rule(os, rule)
             })
         } else {
             true
         }
     }
 
-    async fn environment(
+    pub async fn environment(
         path: PathBuf,
         version: &str,
         tasks: &mut TaskManager,
@@ -193,7 +314,7 @@ impl MinecraftEnvironment {
                     &mut client_response,
                     &mut File::create(client_path).map_err(IO)?,
                     client_size,
-                    task.progress.deref_mut(),
+                    &mut task.progress,
                 )
                 .await;
 
@@ -218,7 +339,7 @@ impl MinecraftEnvironment {
             async fn do_action(
                 self,
                 path: &PathBuf,
-                mut tracker: ChildProgressTracker,
+                mut tracker: Progress,
             ) -> Result<Option<PathBuf>, Error> {
                 match self {
                     LibraryProcessRequest::DownloadArtifact(info) => {
@@ -239,7 +360,7 @@ impl MinecraftEnvironment {
 
                         let size = info.size;
 
-                        let result: Result<(), Error> = copy_stream_tracking_async(
+                        let result: Result<(), Error> = copy_stream_tracking(
                             &mut response,
                             &mut File::create(&path).map_err(IO)?,
                             size,
@@ -258,24 +379,31 @@ impl MinecraftEnvironment {
 
                         create_dir_all(&path).await?;
 
-                        let response = reqwest::get(&info.url)
-                            .await
-                            .map_err(Network)?
-                            .bytes()
-                            .await?;
+                        let response = map_async(
+                            reqwest::get(&info.url).await,
+                            |r| r.bytes(),
+                        ).await.compress();
 
-                        extract(Cursor::new(response), Path::new(&path), false)
-                            .map_err(ZipExtract)?;
+                        match response {
+                            Ok(bytes) => {
+                                extract(Cursor::new(bytes), Path::new(&path), false)
+                                    .map_err(ZipExtract)?;
 
-                        tracker.update(1.0).await;
+                                tracker.update(1.0).await;
 
-                        Ok(None)
+                                Ok(None)
+                            }
+                            Err(e) => {
+                                tracker.erroneously_complete(&e).await;
+                                Ok(None)
+                            }
+                        }
                     }
                 }
             }
         }
 
-        let client_libraries = tasks.submit("Download Minecraft libraries", |task: Task| {
+        let (client_libraries, libraries_task) = tasks.submit("Download Minecraft libraries", |task: Task| {
             let arc = task.to_arc();
 
             let libraries = info.libraries.clone();
@@ -322,7 +450,7 @@ impl MinecraftEnvironment {
                 request.do_action(&path, Task::child(&arc, (size as f64) / total_size))
             });
 
-            join_all(futures)
+            (join_all(futures), arc)
         });
 
         let assets_path = path.join("assets");
@@ -331,16 +459,20 @@ impl MinecraftEnvironment {
         let objects_path = assets_path.join("objects");
         create_dir_all(&objects_path).await?;
 
-        let indexes_path = indexes_path.join(format!("{}.json", info.id));
-        let asset_index = reqwest::get(&info.asset_index.url).await?.bytes().await?;
-        copy(
-            &mut Cursor::new(asset_index),
-            &mut File::create(&indexes_path)?,
-        )?;
+        let indexes_path = indexes_path.join(format!("{}.json", info.assets));
+
+        if !indexes_path.exists() {
+            let asset_index = reqwest::get(&info.asset_index.url).await?.bytes().await?;
+            copy(
+                &mut Cursor::new(asset_index),
+                &mut File::create(&indexes_path)?,
+            )?;
+        }
+
         let asset_index: AssetObjects =
             serde_json::from_reader(File::open(&indexes_path)?).map_err(Serde)?;
 
-        let (asset_task, asset_fut) = tasks.submit("Download Minecraft Assets", |task: Task| {
+        let (asset_fut, assets_task) = tasks.submit("Download Minecraft Assets", |task: Task| {
             let objects = asset_index.objects;
 
             let task = Task::to_arc(task);
@@ -396,7 +528,7 @@ impl MinecraftEnvironment {
 
                                 create_dir_all(&path.parent().unwrap()).await?;
 
-                                let r: Result<(), Error> = copy_stream_tracking_async(
+                                let r: Result<(), Error> = copy_stream_tracking(
                                     &mut asset_response,
                                     &mut File::create(&path).map_err(IO)?,
                                     size,
@@ -417,7 +549,7 @@ impl MinecraftEnvironment {
                     }
                 });
 
-            (task, join_all(iter))
+            (join_all(iter), task)
         });
 
         if let Some(fut) = client_jar_fut {
@@ -431,17 +563,46 @@ impl MinecraftEnvironment {
             .into_iter()
             .filter_map(|x| x)
             .collect::<Vec<_>>();
+        libraries_task.lock().await.update(1.0).await;
 
         asset_fut
             .await
             .into_iter()
             .collect::<Result<Vec<()>, Error>>()?;
-        asset_task.lock().await.update(1.0);
+        assets_task.lock().await.update(1.0).await;
 
         Result::<MinecraftEnvironment, Error>::Ok(MinecraftEnvironment {
             client_jar: version_path.join(format!("{}.jar", &info.id)),
             natives: path.join("bin"),
             libraries: library_paths,
+            asset_path: assets_path,
+            asset_index_name: info.asset_index.id,
+            natives_path: path.join("bin"),
+            arguments: info.arguments.clone().unwrap_or_else(|| {
+                let default_jvm_args = vec![ // This is an option we always want even if MC doesnt say it needs it
+                                             Argument::Value(ValueType::String("-Djava.library.path=${natives_directory}".to_string())),
+                                             Argument::Value(ValueType::Array(vec!["-cp".to_string(), "${classpath}".to_string()]))
+                ];
+                if let Some(args) = info.minecraft_arguments {
+                    let args = args.split(" ")
+                        .map(|str| {
+                            Argument::Value(ValueType::String(str.to_string()))
+                        })
+                        .collect::<Vec<Argument>>();
+
+                    Arguments {
+                        game: args,
+                        jvm: default_jvm_args,
+                    }
+                } else {
+                    Arguments {
+                        game: vec![],
+                        jvm: default_jvm_args,
+                    }
+                }
+            }),
+            main_class: info.main_class.clone(),
+            java_version: info.java_version,
         })
     }
 }
@@ -489,24 +650,26 @@ struct VersionInfo {
     time: String,
     #[serde(rename = "type")]
     type_field: String,
+    #[serde(rename = "minecraftArguments")]
+    minecraft_arguments: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Arguments {
-    game: Vec<Argument>,
-    jvm: Vec<Argument>,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Arguments {
+    pub game: Vec<Argument>,
+    pub jvm: Vec<Argument>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
-enum Argument {
-    String(String),
+pub enum Argument {
+    Value(ValueType),
     ArgumentWithRules { rules: Vec<Rule>, value: ValueType },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
-enum ValueType {
+pub enum ValueType {
     String(String),
     Array(Vec<String>),
 }
@@ -561,10 +724,10 @@ struct DownloadInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct JavaVersion {
-    component: String,
+pub struct JavaVersion {
+    pub component: String,
     #[serde(rename = "majorVersion")]
-    major_version: i32,
+    pub major_version: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -644,5 +807,30 @@ mod tests {
             .unwrap();
 
         println!("{:#?}", env);
+    }
+
+    #[tokio::test]
+    async fn test_apply_args() {
+        let args = vec![
+            Argument::Value(ValueType::String("--test=${var1}".to_string())),
+            Argument::Value(ValueType::String("--test2=${var2}".to_string())),
+            Argument::Value(ValueType::String("--test3=${var1}".to_string())),
+        ];
+
+        let values = HashMap::from([
+            ("var1", "First test".to_string()),
+            ("var2", "Second test".to_string()),
+        ]);
+
+
+        let result = args.format(
+            &values
+        );
+
+        println!("{:#?}", result);
+
+        assert_eq!(result.get(0).unwrap(), "--test=First test");
+        assert_eq!(result.get(2).unwrap(), "--test3=First test");
+        assert_eq!(result.get(1).unwrap(), "--test2=Second test");
     }
 }

@@ -44,14 +44,14 @@ const Splashscreen: React.FC = () => {
 
                 setTimeout(() => {
                     relaunch();
-                }, 1000)
+                }, 2000)
             } else {
                 setStatus(`Everything is up to date!`)
                 setTimeout(() => {
                     invoke("leave_splashscreen").then(() => {
                         // Nothing
                     })
-                }, 1000)
+                }, 2000)
             }
         }).catch(() => {
             setStatus(`Error attempting to update, starting launcher...`)

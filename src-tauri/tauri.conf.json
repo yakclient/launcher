@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0-rc",
   "productName": "YakClient",
-  "version": "1.0.33",
+  "version": "1.0.34",
   "identifier": "net.yakclient",
   "build": {
     "frontendDist": "../out",
@@ -37,7 +37,7 @@
     "macOSPrivateApi": true,
     "security": {
       "csp": null,
-      "capabilities": ["splash"]
+      "capabilities": ["splash", "default"]
     }
   },
   "bundle": {
