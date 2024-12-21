@@ -153,7 +153,7 @@ pub async fn launch_process(
         .arg("--main-class")
         .arg(&env.main_class)
         .arg("--classpath")
-        .arg(classpath.iter().map(|s| s.to_str().unwrap().to_string()).collect::<Vec<String>>().join(":"));
+        .arg(classpath.iter().map(|s| s.to_str().unwrap().to_string()).collect::<Vec<String>>().join(";"));
 
     env.arguments.game
         .chunks(2)
