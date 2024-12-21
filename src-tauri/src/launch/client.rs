@@ -1,35 +1,60 @@
 use crate::extframework_dir;
 use crate::launch::ClientError;
-use crate::launch::ClientError::{IoError, NetworkError};
-use std::cmp::min;
-use std::fs::{create_dir_all, read_to_string, File};
-use std::io::Cursor;
+use crate::task::copy::copy_stream_tracking;
+use crate::task::TaskManager;
+use std::fs::{create_dir_all, File};
 use std::path::{Path, PathBuf};
-use std::{env, io};
 
 fn client_url(version: String) -> String {
     format!("https://maven.extframework.dev/releases/dev/extframework/client/{version}/client-{version}-all.jar", version = version)
 }
 
-pub async fn get_client(version: String) -> reqwest::Result<PathBuf> {
+pub async fn get_client(
+    version: String,
+    tasks: &mut TaskManager,
+) -> Result<PathBuf, ClientError> {
     let path = extframework_dir().join(format!("client-{}.jar", version));
 
     if !Path::new(path.as_os_str()).exists() {
         println!("Downloading client");
-        download_client(version, &path).await?
+        download_client(version, &path, tasks).await?
     }
     Ok(path)
 }
 
-async fn download_client(version: String, path: &PathBuf) -> reqwest::Result<()> {
-    let client_url = client_url(version);
-    let response = reqwest::get(client_url).await?;
+async fn download_client(
+    version: String,
+    path: &PathBuf,
+    tasks: &mut TaskManager,
+) -> Result<(), ClientError> {
 
-    create_dir_all(path.parent().unwrap()).expect("Failed to create client dir path");
-    let mut client_file = File::create(path).expect("Failed to open client.jar file");
-    let mut content = Cursor::new(response.bytes().await?);
+    tasks.submit("Download client", |mut task| {
+        let client_url = client_url(version);
+        async move {
+            let response = reqwest::get(client_url).await
+                .map_err(ClientError::NetworkError)?;
 
-    std::io::copy(&mut content, &mut client_file).expect("Failed to copy client.jar file");
+            let length = response.headers().get("Content-Length")
+                .and_then(|t| Some(t.to_str().ok()?.parse::<u64>().ok()?))
+                .unwrap_or(0u64);
+
+            println!("{}", length);
+
+            create_dir_all(path.parent().unwrap()).expect("Failed to create client dir path");
+            let mut client_file = File::create(path).expect("Failed to open client.jar file");
+            let mut stream = response.bytes_stream();
+
+            let r : Result<(), ClientError> = copy_stream_tracking(
+                &mut stream,
+                &mut client_file,
+                length,
+                &mut task.progress
+            ).await;
+            r?;
+
+            Ok::<(), ClientError>(())
+        }
+    }).await?;
 
     Ok(())
 }
@@ -69,10 +94,17 @@ mod tests {
     use crate::launch::client::{get_client, get_client_version};
     use std::fs::create_dir_all;
     use std::path::PathBuf;
+    use crate::task::TaskManager;
+    use crate::task::tests::PrintingTrackerBuilder;
 
     #[tokio::test]
     async fn test_client_download() {
-        get_client("1.0-SNAPSHOT".to_string()).await.unwrap();
+        let builder = PrintingTrackerBuilder {
+            path: PathBuf::from("tests").join("child-test"),
+        };
+
+        let mut manager = TaskManager::new(Box::new(builder));
+        get_client("1.0.12-BETA".to_string(), &mut manager).await.unwrap();
     }
 
     #[tokio::test]

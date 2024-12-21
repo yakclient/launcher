@@ -133,8 +133,6 @@ export default function MyApp({Component, pageProps}: AppProps) {
         };
     })
 
-    console.log(tasks)
-
     return <div data-bs-theme="dark">
         <ThemeProvider>
             <ConsoleChannel.Provider value={{
@@ -159,6 +157,7 @@ export default function MyApp({Component, pageProps}: AppProps) {
                             </Alert>
                         )}
                         {tasks.map((value) => {
+                            console.log(value.progress * 100)
                             return <Alert key={value.event.id} variant={"dark"}>
                                 <h2>{value.event.name}</h2>
                                 <ProgressBar style={{

@@ -95,7 +95,6 @@ impl Progress {
                 let channel = guard.get(id);
 
                 if progress - *last_sent >= 0.01f64 || progress >= 1f64 {
-                    println!("Progress update for channel: {}, {}", id, percent);
                     *last_sent = progress;
                     if let Some(channel) = channel {
                         channel

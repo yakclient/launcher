@@ -1,10 +1,12 @@
 use crate::launch::client::{get_client, get_client_version};
 use crate::launch::java::JreSetupError;
+use crate::launch::minecraft::MinecraftEnvironment;
 use crate::launch::process::{capture_child, launch_process, ProcessStdoutEvent};
 use crate::launch::ClientError::{ClientNotRunning, ClientProcessError, IoError, MinecraftSetupErr, ModExtError, NetworkError, Unauthenticated};
 use crate::mods::{generate_mod_extension, ModExtGenerationError};
 use crate::persist::PersistedData;
 use crate::state::{Extension, LaunchInstance, MinecraftAuthentication, Mod};
+use crate::task::TaskManager;
 use crate::{launcher_status, minecraft_dir, yakclient_dir};
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use futures::TryFutureExt;
@@ -12,16 +14,13 @@ use serde::{Serialize, Serializer};
 use std::fmt::{Display, Formatter};
 use std::fs::create_dir_all;
 use std::io;
-use std::io::{Read, Write};
+use std::io::{Error, Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
-use crate::launch::minecraft::MinecraftEnvironment;
-use crate::task::channel_progress::{ChannelProgressBuilder, ChannelProgressManager, TaskEvent};
-use crate::task::TaskManager;
 
 mod client;
 mod java;
@@ -42,6 +41,18 @@ pub enum ClientError {
     MinecraftSetupErr(minecraft::Error)
 }
 
+impl From<Error> for ClientError {
+    fn from(value: Error) -> Self {
+        IoError(value)
+    }
+}
+
+
+impl From<reqwest::Error> for ClientError {
+    fn from(value: reqwest::Error) -> Self {
+        NetworkError(value)
+    }
+}
 impl Serialize for ClientError {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -84,9 +95,10 @@ pub async fn launch_minecraft(
 
     let yakclient_dir = yakclient_dir();
 
-    let client_path = get_client(get_client_version().await?)
-        .await
-        .map_err(|e| NetworkError(e))?;
+    let mut tasks = tasks.lock().await;
+
+    let client_path = get_client(get_client_version().await?, &mut *tasks)
+        .await?;
 
     println!("Launching Minecraft");
     let ms_auth: Option<MinecraftAuthentication> = persisted_data.read_value("ms_auth");
@@ -106,8 +118,6 @@ pub async fn launch_minecraft(
         extensions.push(mod_ext);
     }
 
-    let mut tasks = tasks.lock().await;
-    //
     let env = MinecraftEnvironment::environment(
         minecraft_dir(),
         version.as_str(),
