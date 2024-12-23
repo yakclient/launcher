@@ -86,7 +86,6 @@ pub async fn launch_minecraft(
     persisted_data: State<'_, PersistedData>,
     console_channel: Channel<ProcessStdoutEvent>,
     discord_client: State<'_, std::sync::Mutex<Option<DiscordIpcClient>>>,
-    app: AppHandle,
     tasks: State<'_, Mutex<TaskManager>>
 ) -> Result<(), ClientError> {
     if process.lock().await.is_some() {

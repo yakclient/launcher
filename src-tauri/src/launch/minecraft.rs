@@ -21,6 +21,7 @@ use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use reqwest::Client;
 use tokio::fs::create_dir_all;
 use tokio::io::{self, AsyncWriteExt};
 use uuid::serde::urn::deserialize;
@@ -111,10 +112,10 @@ fn replace_option_variable(
             if let Some(value) = value {
                 str.replace_range(index..closing_brace + 1, value)
             } else {
-                return None
+                return None;
             }
         } else {
-            return Some(str)
+            return Some(str);
         }
     }
 }
@@ -188,8 +189,8 @@ impl FormatForCommand for Vec<Argument> {
 const MINECRAFT_RESOURCES: &'static str = "https://resources.download.minecraft.net";
 
 impl MinecraftEnvironment {
-    async fn download_version_info(version: &str, path: &PathBuf) -> Result<(), Error> {
-        let response = reqwest::get(VERSION_MANIFEST).await.map_err(Network)?;
+    async fn download_version_info(version: &str, client: &Client, path: &PathBuf) -> Result<(), Error> {
+        let response = client.get(VERSION_MANIFEST).send().await.map_err(Network)?;
         let bytes = response.bytes().await.map_err(Network)?;
         let bytes = bytes.as_ref();
         let manifest: VersionManifest = serde_json::from_slice(bytes).map_err(Serde)?;
@@ -202,7 +203,7 @@ impl MinecraftEnvironment {
 
         let url = entry.url;
 
-        let response = reqwest::get(url).await.map_err(Network)?;
+        let response = client.get(url).send().await.map_err(Network)?;
         let bytes = response.bytes().await.map_err(Network)?;
 
         copy(&mut Cursor::new(bytes), &mut File::create(path)?)?;
@@ -289,9 +290,11 @@ impl MinecraftEnvironment {
         let version_path = path.join("versions").join(version);
         create_dir_all(&version_path).await?;
 
+        let client = reqwest::Client::new();
+
         let client_json_path = version_path.join(format!("{}.json", version));
         if !client_json_path.exists() {
-            Self::download_version_info(version, &client_json_path).await?;
+            Self::download_version_info(version, &client, &client_json_path).await?;
         }
 
         let info: VersionInfo =
@@ -303,7 +306,7 @@ impl MinecraftEnvironment {
         let client_path = version_path.join(format!("{}.jar", &info.id));
 
         let client_jar_fut = if !client_path.exists() {
-            let mut client_response = reqwest::get(&client_info.url)
+            let mut client_response = client.get(&client_info.url).send()
                 .await
                 .map_err(Network)?
                 .bytes_stream();
@@ -316,11 +319,11 @@ impl MinecraftEnvironment {
                     client_size,
                     &mut task.progress,
                 )
-                .await;
+                    .await;
 
                 result?;
 
-                task.progress.update(1.0);
+                task.progress.update(1.0).await;
 
                 Ok::<(), Error>(())
             });
@@ -339,6 +342,7 @@ impl MinecraftEnvironment {
             async fn do_action(
                 self,
                 path: &PathBuf,
+                client: &Client,
                 mut tracker: Progress,
             ) -> Result<Option<PathBuf>, Error> {
                 match self {
@@ -353,7 +357,7 @@ impl MinecraftEnvironment {
 
                         create_dir_all(path.parent().unwrap()).await?;
 
-                        let mut response = reqwest::get(&info.url)
+                        let mut response = client.get(&info.url).send()
                             .await
                             .map_err(Network)?
                             .bytes_stream();
@@ -366,7 +370,7 @@ impl MinecraftEnvironment {
                             size,
                             &mut tracker,
                         )
-                        .await;
+                            .await;
 
                         result?;
 
@@ -380,7 +384,7 @@ impl MinecraftEnvironment {
                         create_dir_all(&path).await?;
 
                         let response = map_async(
-                            reqwest::get(&info.url).await,
+                            client.get(&info.url).send().await,
                             |r| r.bytes(),
                         ).await.compress();
 
@@ -447,7 +451,7 @@ impl MinecraftEnvironment {
             let iter = vec.into_iter();
 
             let futures = iter.map(|(request, size)| {
-                request.do_action(&path, Task::child(&arc, (size as f64) / total_size))
+                request.do_action(&path, &client, Task::child(&arc, (size as f64) / total_size))
             });
 
             (join_all(futures), arc)
@@ -473,15 +477,19 @@ impl MinecraftEnvironment {
             serde_json::from_reader(File::open(&indexes_path)?).map_err(Serde)?;
 
         let (asset_fut, assets_task) = tasks.submit("Download Minecraft Assets", |task: Task| {
-            let objects = asset_index.objects;
+            let objects = &asset_index.objects;
 
             let task = Task::to_arc(task);
 
             let borrowable_task = Arc::clone(&task);
 
+            let total_size = objects
+                .iter()
+                .map(|o| o.1.size).sum::<u64>();
+
             let iter = objects
-                .into_iter()
-                .map(move |entry: (String, AssetContent)| {
+                .iter()
+                .map(move |entry| {
                     let checksum = &entry.1.hash;
 
                     let parent_path = (&objects_path).join(&checksum[0..2].to_string());
@@ -489,57 +497,52 @@ impl MinecraftEnvironment {
 
                     (path, entry)
                 })
-                .filter(|entry| !entry.0.exists());
-
-            let vec = iter.collect::<Vec<(PathBuf, (String, AssetContent))>>();
-            let total_size = vec
-                .iter()
-                .fold(0u64, |acc, e: &(PathBuf, (String, AssetContent))| {
-                    acc + e.1 .1.size
-                });
-
-            let iter = vec
-                .into_iter()
-                .map(|entry: (PathBuf, (String, AssetContent))| {
-                    let checksum = entry.1 .1.hash;
-                    let size = entry.1 .1.size;
+                .filter(|entry| !entry.0.exists())
+                .map(|entry| {
+                    let checksum = &entry.1.1.hash;
+                    let size = &entry.1.1.size;
 
                     let path = entry.0;
 
                     let mut tracker =
-                        Task::child(&borrowable_task, (size as f64) / (total_size as f64));
+                        Task::child(&borrowable_task, (*size as f64) / (total_size as f64));
+
+                    let client = Arc::new(&client);
 
                     async move {
                         let mut tries = 0;
+                        create_dir_all(&path.parent().unwrap()).await?;
+
+                        let client = Arc::clone(&client);
+
                         for _ in 0..2 {
+                            let mut asset_response = client.get(
+                                format!(
+                                    "{}/{}/{}",
+                                    MINECRAFT_RESOURCES,
+                                    checksum[0..2].to_string(),
+                                    checksum.to_string()
+                                ).as_str(),
+                            ).send();
+
                             tries = tries + 1;
                             let r = async {
-                                let mut asset_response = reqwest::get(
-                                    format!(
-                                        "{}/{}/{}",
-                                        MINECRAFT_RESOURCES,
-                                        checksum[0..2].to_string(),
-                                        checksum.to_string()
-                                    )
-                                    .as_str(),
-                                )
-                                .await?
-                                .bytes_stream();
+                                let mut asset_response = asset_response
+                                    .await?
+                                    .bytes_stream();
 
-                                create_dir_all(&path.parent().unwrap()).await?;
 
                                 let r: Result<(), Error> = copy_stream_tracking(
                                     &mut asset_response,
                                     &mut File::create(&path).map_err(IO)?,
-                                    size,
+                                    size.clone(),
                                     &mut tracker,
                                 )
-                                .await;
+                                    .await;
                                 r?;
 
                                 Ok::<(), Error>(())
-                            }
-                            .await;
+                            }.await;
 
                             if r.is_ok() || (r.is_err() && tries >= 3) {
                                 return r;
@@ -789,10 +792,12 @@ struct AssetContent {
 
 #[cfg(test)]
 mod tests {
+    use std::str::{from_utf8, FromStr};
     use super::*;
     use crate::task::tests::PrintingTrackerBuilder;
     use crate::task::TrackerBuilder;
     use tokio::fs::create_dir_all;
+    use crate::launch::minecraft::ValueType::String;
 
     #[tokio::test]
     async fn test_download_minecraft() {

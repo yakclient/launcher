@@ -1,15 +1,14 @@
 use crate::launch::java::JreSetupError::{IOError, ZipError};
 use flate2::read::GzDecoder;
 use futures::StreamExt;
-use std::fmt::{format, Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::fs::{create_dir_all, File};
 use std::io;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use tar::Archive;
 use zip::ZipArchive;
-use zip_extract::{extract, ZipExtractError};
 
 #[derive(Debug)]
 pub enum JreSetupError {
