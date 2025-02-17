@@ -36,6 +36,7 @@ bytes = "1.7.2"
 discord-rich-presence = "0.2.5"
 time = "0.3.37"
 tauri-plugin-process = "2"
+rand = "0.8.5"
 
 [dev-dependencies]
 tokio = { version = "1.40.0", features = ["full"] }

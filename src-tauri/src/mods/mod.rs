@@ -1,19 +1,22 @@
 use crate::extensions::types::{
-    ExtensionParent, ExtensionRepository, ExtensionRuntimeModel, PartitionModelReference,
+    ExtensionParent, ExtensionRepository, ExtensionRuntimeModel,
     PartitionRuntimeModel,
 };
 use crate::persist::PersistedData;
 use crate::state::{Extension, Mod, RepositoryType};
 use futures::stream::iter;
 use futures::StreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{format, Display, Formatter};
-use std::fs::{create_dir_all, File};
-use std::io::Cursor;
+use std::fs::{copy, create_dir_all, File};
+use std::io::{Cursor, Write};
 use std::path::PathBuf;
+use home::home_dir;
 use tauri::State;
 use uuid::Uuid;
+use rand::{random, thread_rng, Rng};
+use crate::util::rand::generate_random_id;
 
 #[tauri::command]
 pub async fn set_mod_state(
@@ -57,10 +60,81 @@ struct ModVersionInfo {
     project_id: String,
 }
 
-pub async fn generate_mod_extension(
-    mods: Vec<Mod>,
+#[derive(Deserialize, Serialize, Clone)]
+struct ModsStore {
+    lookup: HashMap<String, Extension>,
+}
+
+impl ModsStore {
+    fn lookup(
+        &self,
+        mods: &Vec<Mod>,
+    ) -> Option<&Extension> {
+        let key = mods.iter().map(|it|
+            format!("{}:{}", it.loader, it.project_id)
+        ).collect::<Vec<String>>().join(",");
+
+        self.lookup.get(&key)
+    }
+
+    fn put(
+        &mut self,
+        mods: &Vec<Mod>,
+        extension: Extension,
+    ) {
+        let key = mods.iter().map(|it|
+            format!("{}:{}", it.loader, it.project_id)
+        ).collect::<Vec<String>>().join(",");
+
+        self.lookup.insert(key, extension);
+    }
+}
+
+pub async fn get_mod_extension(
+    mods: &Vec<Mod>,
     path: PathBuf,
-    version: String,
+) -> Result<Extension, ModExtGenerationError> {
+    let mods_lookup_path = path.join("mods.json");
+
+    let mut store: ModsStore = if !mods_lookup_path.exists() {
+        create_dir_all(mods_lookup_path.parent().unwrap())
+            .map_err(ModExtGenerationError::IOError)?;
+
+        ModsStore {
+            lookup: HashMap::new(),
+        }
+    } else {
+        let file = File::open(&mods_lookup_path)
+            .map_err(ModExtGenerationError::IOError)?;
+
+        serde_json::from_reader(
+            file
+        ).map_err(ModExtGenerationError::SerdeError)?
+    };
+
+    if let Some(extension) = store.lookup(&mods) {
+        Ok(extension.clone())
+    } else {
+        let generated: Extension = generate_mod_extension(
+            &mods,
+            path,
+        ).await?;
+
+        store.put(&mods, generated.clone());
+
+        let file = File::create(mods_lookup_path)
+            .map_err(ModExtGenerationError::IOError)?;
+
+        serde_json::to_writer(file, &store)
+            .map_err(ModExtGenerationError::SerdeError)?;
+
+        Ok(generated)
+    }
+}
+
+pub async fn generate_mod_extension(
+    mods: &Vec<Mod>,
+    path: PathBuf,
 ) -> Result<Extension, ModExtGenerationError> {
     let client = reqwest::Client::new();
     let requested_loaders = mods.iter().map(|t| t.loader.clone()).collect();
@@ -118,7 +192,7 @@ pub async fn generate_mod_extension(
             });
 
             PartitionRuntimeModel {
-                r#type: "target".to_string(),
+                r#type: "minecraft".to_string(),
                 name: version.clone(),
                 repositories: vec![ExtensionRepository {
                     r#type: "fabric-mod:modrinth".to_string(),
@@ -138,27 +212,33 @@ pub async fn generate_mod_extension(
         .collect::<Vec<PartitionRuntimeModel>>();
 
     let runtime_model = ExtensionRuntimeModel {
-        api_version: 1,
+        api_version: 2,
         group_id: "dev.extframework.generated".to_string(),
-        name: format!("mods-{}", Uuid::new_v4().to_string()),
+        name: format!("mods-{}", generate_random_id(8)),
         version: "1".to_string(),
         repositories: vec![HashMap::from([(
             "location".to_string(),
             "https://repo.extframework.dev/registry".to_string(),
+        )]), HashMap::from([(
+            "location".to_string(),
+            home_dir().unwrap().join(".m2").join("repository").to_str().unwrap().to_string(),
+        ), (
+            "type".to_string(),
+            "local".to_string()
         )])],
         parents: vec![ExtensionParent {
             group: "dev.extframework.integrations".to_string(),
             extension: "fabric-ext".to_string(),
-            version: "1.0.1-BETA".to_string(),
+            version: "1.0.2-BETA".to_string(),
         }],
-        partitions: target_partitions
-            .iter()
-            .filter(|it| it.name == version)
-            .map(|it| PartitionModelReference {
-                r#type: "target".to_string(),
-                name: it.name.clone(),
-            })
-            .collect(),
+        partitions: target_partitions,
+        // .iter()
+        // .filter(|it| it.name == version)
+        // .map(|it| PartitionModelReference {
+        //     r#type: "target".to_string(),
+        //     name: it.name.clone(),
+        // })
+        // .collect(),
     };
 
     let version_path = path
@@ -180,16 +260,16 @@ pub async fn generate_mod_extension(
 
     serde_json::to_writer(erm_path, &runtime_model)
         .map_err(|e| ModExtGenerationError::SerdeError(e))?;
-
-    for prm in target_partitions {
-        let prm_path = version_path.join(format!(
-            "{}-{}-{}.json",
-            runtime_model.name, runtime_model.version, prm.name
-        ));
-        let prm_path = File::create(prm_path).map_err(|e| ModExtGenerationError::IOError(e))?;
-
-        serde_json::to_writer(prm_path, &prm).map_err(|e| ModExtGenerationError::SerdeError(e))?;
-    }
+    //
+    // for prm in target_partitions {
+    //     let prm_path = version_path.join(format!(
+    //         "{}-{}-{}.json",
+    //         runtime_model.name, runtime_model.version, prm.name
+    //     ));
+    //     let prm_path = File::create(prm_path).map_err(|e| ModExtGenerationError::IOError(e))?;
+    //
+    //     serde_json::to_writer(prm_path, &prm).map_err(|e| ModExtGenerationError::SerdeError(e))?;
+    // }
 
     Ok(Extension {
         descriptor: format!(
@@ -201,6 +281,9 @@ pub async fn generate_mod_extension(
     })
 }
 
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,7 +291,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_mod_ext_creation() {
         generate_mod_extension(
-            vec![
+            &vec![
                 Mod {
                     project_id: "u6dRKJwZ".to_string(),
                     loader: "fabric".to_string(),
@@ -219,9 +302,21 @@ mod tests {
                 },
             ],
             PathBuf::from("tests/repo"),
-            "1.21.3".to_string(),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
     }
+
+    #[tokio::test]
+    async fn test_generate_mod_store() {
+        get_mod_extension(
+            &vec![
+
+            ],
+            PathBuf::from("tests/repo"),
+        )
+            .await
+            .unwrap();
+    }
+
 }

@@ -26,6 +26,7 @@ use tokio::fs::create_dir_all;
 use tokio::io::{self, AsyncWriteExt};
 use uuid::serde::urn::deserialize;
 use zip_extract::{extract, ZipExtractError};
+use crate::launch::lib_patch::{fetch_library_patches, patch_library};
 
 #[derive(Debug)]
 pub enum Error {
@@ -67,7 +68,6 @@ impl Display for Error {
 #[derive(Debug)]
 pub struct MinecraftEnvironment {
     pub client_jar: PathBuf,
-    pub natives: PathBuf,
     pub libraries: Vec<PathBuf>,
     pub asset_path: PathBuf,
     pub asset_index_name: String,
@@ -288,17 +288,25 @@ impl MinecraftEnvironment {
         tasks: &mut TaskManager,
     ) -> Result<MinecraftEnvironment, Error> {
         let version_path = path.join("versions").join(version);
-        create_dir_all(&version_path).await?;
+        if !version_path.exists() {
+            create_dir_all(&version_path).await?;
+        }
 
-        let client = reqwest::Client::new();
+        let client = Client::new();
 
         let client_json_path = version_path.join(format!("{}.json", version));
         if !client_json_path.exists() {
             Self::download_version_info(version, &client, &client_json_path).await?;
         }
 
-        let info: VersionInfo =
+        let mut info: VersionInfo =
             serde_json::from_reader(File::open(&client_json_path)?).map_err(Serde)?;
+
+        // Again, thank you so much Modrinth! You actually saved me like weeks
+        let patches = fetch_library_patches()?;
+        info.libraries = info.libraries.iter().flat_map(|lib| {
+            patch_library(&patches, lib.clone())
+        }).collect();
 
         let client_info = (&info.downloads.get("client"))
             .ok_or(InvalidInfo("No client available to download"))?;
@@ -407,6 +415,10 @@ impl MinecraftEnvironment {
             }
         }
 
+        let bin_path = path.join("bin");
+        if bin_path.exists() {
+            std::fs::remove_dir_all(bin_path)?;
+        }
         let (client_libraries, libraries_task) = tasks.submit("Download Minecraft libraries", |task: Task| {
             let arc = task.to_arc();
 
@@ -459,22 +471,26 @@ impl MinecraftEnvironment {
 
         let assets_path = path.join("assets");
         let indexes_path = assets_path.join("indexes");
-        create_dir_all(&indexes_path).await?;
-        let objects_path = assets_path.join("objects");
-        create_dir_all(&objects_path).await?;
-
-        let indexes_path = indexes_path.join(format!("{}.json", info.assets));
-
         if !indexes_path.exists() {
+            create_dir_all(&indexes_path).await?;
+        }
+        let objects_path = assets_path.join("objects");
+        if !objects_path.exists() {
+            create_dir_all(&objects_path).await?;
+        }
+
+        let indexes_json_path = indexes_path.join(format!("{}.json", info.assets));
+
+        if !indexes_json_path.exists() {
             let asset_index = reqwest::get(&info.asset_index.url).await?.bytes().await?;
             copy(
                 &mut Cursor::new(asset_index),
-                &mut File::create(&indexes_path)?,
+                &mut File::create(&indexes_json_path)?,
             )?;
         }
 
         let asset_index: AssetObjects =
-            serde_json::from_reader(File::open(&indexes_path)?).map_err(Serde)?;
+            serde_json::from_reader(File::open(&indexes_json_path)?).map_err(Serde)?;
 
         let (asset_fut, assets_task) = tasks.submit("Download Minecraft Assets", |task: Task| {
             let objects = &asset_index.objects;
@@ -576,7 +592,6 @@ impl MinecraftEnvironment {
 
         Result::<MinecraftEnvironment, Error>::Ok(MinecraftEnvironment {
             client_jar: version_path.join(format!("{}.jar", &info.id)),
-            natives: path.join("bin"),
             libraries: library_paths,
             asset_path: assets_path,
             asset_index_name: info.asset_index.id,
@@ -678,18 +693,18 @@ pub enum ValueType {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Rule {
-    action: String,
+pub struct Rule {
+    pub action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    os: Option<OsRule>,
+    pub os: Option<OsRule>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    features: Option<Features>,
+    pub features: Option<Features>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct OsRule {
-    name: Option<String>,
-    arch: Option<String>,
+pub struct OsRule {
+    pub name: Option<String>,
+    pub arch: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -734,27 +749,27 @@ pub struct JavaVersion {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Library {
-    downloads: LibraryDownloads,
-    name: String,
+pub struct Library {
+    pub downloads: LibraryDownloads,
+    pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rules: Option<Vec<Rule>>,
+    pub rules: Option<Vec<Rule>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    natives: Option<HashMap<String, String>>,
+    pub natives: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    extract: Option<LibraryExtract>,
+    pub extract: Option<LibraryExtract>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct LibraryExtract {
-    exclude: Vec<String>,
+pub struct LibraryExtract {
+    pub exclude: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct LibraryDownloads {
-    artifact: Option<DownloadInfo>,
+pub struct LibraryDownloads {
+    pub artifact: Option<DownloadInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    classifiers: Option<HashMap<String, DownloadInfo>>,
+    pub classifiers: Option<HashMap<String, DownloadInfo>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -792,12 +807,10 @@ struct AssetContent {
 
 #[cfg(test)]
 mod tests {
-    use std::str::{from_utf8, FromStr};
     use super::*;
     use crate::task::tests::PrintingTrackerBuilder;
     use crate::task::TrackerBuilder;
     use tokio::fs::create_dir_all;
-    use crate::launch::minecraft::ValueType::String;
 
     #[tokio::test]
     async fn test_download_minecraft() {

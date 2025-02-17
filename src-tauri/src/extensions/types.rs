@@ -12,15 +12,15 @@ pub struct ExtensionRuntimeModel {
 
     pub repositories: Vec<HashMap<String, String>>,
     pub parents: Vec<ExtensionParent>,
-    pub partitions: Vec<PartitionModelReference>,
+    pub partitions: Vec<PartitionRuntimeModel>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PartitionModelReference {
-    pub r#type: String,
-    pub name: String,
-}
+// #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct PartitionModelReference {
+//     pub r#type: String,
+//     pub name: String,
+// }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

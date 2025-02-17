@@ -42,6 +42,11 @@ impl PersistedData {
         }
     }
 
+    pub fn remove_value<S: AsRef<str>>(&self, name: S) -> bool
+    {
+        self.content.lock().unwrap().remove(name.as_ref()).is_some()
+    }
+
     pub fn persist_to<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         let path = path.as_ref();
 

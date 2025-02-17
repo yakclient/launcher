@@ -18,20 +18,10 @@
         "height": 800,
         "resizable": false,
         "fullscreen": false,
-        "visible": false,
-        "url": "/login",
+        "visible": true,
+        "url": "/authentication",
         "maximizable": false,
         "transparent": true
-      },
-      {
-        "width": 300,
-        "height": 300,
-        "label": "splashscreen",
-        "url": "/splashscreen",
-        "decorations": false,
-        "center": true,
-        "resizable": false,
-        "maximizable": false
       }
     ],
     "macOSPrivateApi": true,

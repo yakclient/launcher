@@ -5,11 +5,15 @@ import {useEffect, useState} from "react";
 import {check} from "@tauri-apps/plugin-updater";
 import {relaunch} from "@tauri-apps/plugin-process";
 import {invoke} from "@tauri-apps/api/core";
+import bg_png from "../../public/icons/login_bg.png";
+import {Alert, Button} from "react-bootstrap";
+import {useRouter} from "next/router";
 
 
 const Splashscreen: React.FC = () => {
     let [rot, setRot] = useState(0);
     let [status, setStatus] = useState("Looking for updates...")
+    const router = useRouter();
 
     useEffect(() => {
         let interval = setInterval(() => {
@@ -47,27 +51,40 @@ const Splashscreen: React.FC = () => {
                 }, 2000)
             } else {
                 setStatus(`Everything is up to date!`)
-                setTimeout(() => {
-                    invoke("leave_splashscreen").then(() => {
-                        // Nothing
-                    })
-                }, 2000)
+                router.push("/login").then(() => {})
+                // setTimeout(() => {
+                //     invoke("leave_splashscreen").then(() => {
+                //         // Nothing
+                //     })
+                // }, 2000)
             }
         }).catch(() => {
             setStatus(`Error attempting to update, starting launcher...`)
             setTimeout(() => {
-                invoke("leave_splashscreen").then(() => {
-                    // Nothing
-                })
-            }, 3000)
+                // invoke("leave_splashscreen").then(() => {
+                //     // Nothing
+                // })
+                router.push("/login").then(() => {})
+            }, 2000)
         });
 
         return () => clearInterval(interval);
     }, []);
 
     return <div id={styles.container}>
-        <h1>YakClient</h1>
-        <h2>Checking for updates</h2>
+        <div id={styles.bg}>
+            <Image
+                src={bg_png}
+                alt={"Background"}
+                width={500}
+                height={800}
+                className={styles.title_image}
+            />
+        </div>
+        <div id={styles.title} className={styles.centered}>
+            <h1>YakClient</h1>
+        </div>
+        <h2 className={styles.centered}>Checking for updates</h2>
         <div id={styles.logo_container} style={{
             transform: "translate(-50%, 0) rotate(" + (-Math.pow(((rot % 40) - 20), 2) + 360) + "deg" + ")"
         }}>
@@ -78,10 +95,28 @@ const Splashscreen: React.FC = () => {
                 logo
             } alt={"Logo"}/>
         </div>
-        <div>
+        <div className={styles.centered}>
             {status}
         </div>
     </div>
+
+    // return <div id={styles.container}>
+    //     <h1>YakClient</h1>
+    //     <h2>Checking for updates</h2>
+    //     <div id={styles.logo_container} style={{
+    //         transform: "translate(-50%, 0) rotate(" + (-Math.pow(((rot % 40) - 20), 2) + 360) + "deg" + ")"
+    //     }}>
+    //         <Image width={100} height={100} src={
+    //             logo
+    //         } alt={"Logo"}/>
+    //         <Image width={100} height={100} src={
+    //             logo
+    //         } alt={"Logo"}/>
+    //     </div>
+    //     <div>
+    //         {status}
+    //     </div>
+    // </div>
 }
 
 export default Splashscreen

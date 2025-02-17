@@ -50,7 +50,7 @@ const Console: React.FC = () => {
                         }}>{mapLine(String.fromCharCode(...line.frag))}</span>
                     )}
                 </div>
-                <div id={styles.end}>
+                <div id={styles.end_process}>
                     <Button
                         onClick={() => {
                             router.push("/home")
@@ -68,6 +68,29 @@ const Console: React.FC = () => {
                         }}
                         variant={"outline-danger"}
                     >End Process</Button>
+                </div>
+                <div id={styles.export_logs}>
+                    <Button
+                        onClick={() => {
+                            let logs = lines.map((it) => {
+                                return String.fromCharCode(...it.frag)
+                            }).join("");
+                            invoke("export_logs", {
+                                "logs": logs
+                            }).then(() => {
+                            }).catch((it) => {
+                                addAlert(
+                                    "danger",
+                                    <>
+                                        <Alert.Heading>Error!</Alert.Heading>
+                                        <hr/>
+                                        {it.toString()}
+                                    </>
+                                )
+                            })
+                        }}
+                        variant={"outline-secondary"}
+                    >Export logs</Button>
                 </div>
             </>
         }

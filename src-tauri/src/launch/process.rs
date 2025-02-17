@@ -13,9 +13,12 @@ use std::process::{Child, Command, Stdio};
 use std::str::from_utf8;
 use std::sync::Arc;
 use std::{io, thread};
+use std::thread::sleep;
+use std::time::Duration;
 use tauri::ipc::Channel;
 use tauri::Manager;
 use tokio::sync::Mutex;
+use crate::settings::DebuggerSettings;
 
 #[derive(Clone, Serialize)]
 pub struct ProcessStdoutEvent {
@@ -74,11 +77,10 @@ pub async fn launch_process(
     client_path: PathBuf,
     auth: &Option<MinecraftAuthentication>,
     extensions: &Vec<Extension>,
-    env: &MinecraftEnvironment
+    env: &MinecraftEnvironment,
+    debugger_settings: DebuggerSettings,
 ) -> Result<Child, ClientError> {
     // TODO cleaner version support
-    let legacy = version == "1.8.9";
-
     let java_version = env.java_version.major_version.to_string();
 
     let os_name = if cfg!(target_os = "windows") {
@@ -91,7 +93,7 @@ pub async fn launch_process(
 
     let os_arch = if cfg!(target_arch = "x86_64") {
         "x64"
-    } else if cfg!(target_arch = "aarch64") && !legacy {
+    } else if cfg!(target_arch = "aarch64") {
         "aarch64"
     } else {
         "x64"
@@ -103,14 +105,13 @@ pub async fn launch_process(
 
     let mut arg_variables = HashMap::from([
         ("version", version.clone()),
-        ("version_name", version),
+        ("version_name", version.clone()),
         ("game_directory", minecraft_dir().to_str().unwrap().to_string()),
         ("assets_root", env.asset_path.to_str().unwrap().to_string()),
         ("assets_index_name", env.asset_index_name.clone()),
         ("natives_directory", env.natives_path.to_str().unwrap().to_string()),
         ("launcher_name", "yakclient".to_string()),
         ("classpath", "~/nothing.jar".to_string()) // Just any temporary placeholder
-        // ("classpath",
     ]);
 
     if let Some(auth) = auth {
@@ -123,45 +124,35 @@ pub async fn launch_process(
         .await
         .map_err(|it| JreInstallError(it))?;
 
-    // fn should_be_alone(
-    //     a: &Argument,
-    // ) -> bool {
-    //     match a {
-    //         Argument::Value(value) => {
-    //             if let ValueType::String(s) = value {
-    //                 !s.contains("=")
-    //             } else { true }
-    //         }
-    //         Argument::ArgumentWithRules { rules, value } => {
-    //             if let ValueType::String(s) = value {
-    //                 !s.contains("=")
-    //             } else { true }
-    //         }
-    //     }
-    // }
-
     env.arguments.jvm
-        // .chunk_by(|a, b| !(should_be_alone(a) && should_be_alone(b)))
         .apply(
             &mut command,
             &arg_variables,
         );
+
+    if debugger_settings.enabled {
+        command.arg(
+            format!(
+                "-agentlib:jdwp=transport=dt_socket,server=y,suspend={},address={}",
+                if debugger_settings.suspend { "y" } else { "n" },
+                debugger_settings.port
+            )
+        );
+    }
 
     command
         .arg("-jar")
         .arg(client_path.to_str().unwrap())
         .arg("--main-class")
         .arg(&env.main_class)
+        .arg("--mapping-namespace")
+        .arg("mojang:obfuscated")
         .arg("--classpath")
-        .arg(classpath.iter().map(|s| s.to_str().unwrap().to_string()).collect::<Vec<String>>().join(";"));
-
-    env.arguments.game
-        .chunks(2)
-        .collect::<Vec<&[Argument]>>()
-        .apply(
-            &mut command,
-            &arg_variables,
-        );
+        .arg(classpath.iter().map(|s| s.to_str().unwrap().to_string()).collect::<Vec<String>>().join(";"))
+        .arg("--game-jar")
+        .arg(env.client_jar.to_str().unwrap())
+        .arg("--version")
+        .arg(version);
 
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -175,6 +166,17 @@ pub async fn launch_process(
             x.repository.as_str()
         ));
     }
+
+    // Separator from MC args
+    command.arg(":");
+
+    env.arguments.game
+        .chunks(2)
+        .collect::<Vec<&[Argument]>>()
+        .apply(
+            &mut command,
+            &arg_variables,
+        );
 
     let child = command.spawn().map_err(|e| IoError(e))?;
 
@@ -194,8 +196,10 @@ pub fn capture_child(mut child: Child, channel: Channel<ProcessStdoutEvent>) -> 
         is_err: false,
     };
 
+    // TODO not super efficient
     thread::spawn(move || {
         loop {
+            sleep(Duration::from_millis(2));
             let mut buffer: [u8; 64] = [0; 64];
             // println!("Looping");
             if let Ok(length) = child_stdout.read(&mut buffer) {
@@ -216,8 +220,8 @@ pub fn capture_child(mut child: Child, channel: Channel<ProcessStdoutEvent>) -> 
 
     thread::spawn(move || {
         loop {
+            sleep(Duration::from_millis(2));
             let mut buffer: [u8; 64] = [0; 64];
-            // println!("Looping");
             if let Ok(length) = child_stderr.read(&mut buffer) {
                 if length == 0 {
                     break;
@@ -230,3 +234,4 @@ pub fn capture_child(mut child: Child, channel: Channel<ProcessStdoutEvent>) -> 
 
     child
 }
+

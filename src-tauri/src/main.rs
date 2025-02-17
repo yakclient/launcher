@@ -4,7 +4,7 @@
 use crate::extensions::{get_extension_state, get_maven_local, set_extension_state};
 use crate::launch::{end_launch_process, launch_minecraft};
 use crate::mods::{get_mod_state, set_mod_state};
-use crate::oauth::{get_mc_profile, microsoft_login, use_no_auth};
+use crate::oauth::{do_ms_refresh, get_mc_profile, logout, microsoft_login, use_no_auth};
 use crate::open_url::open_url;
 use crate::persist::PersistedData;
 use crate::state::{Extension, LaunchInstance, MinecraftAuthentication, OAuthConfig};
@@ -23,6 +23,8 @@ use std::{env, io};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex, MutexGuard};
+use crate::launch::logs::export_logs;
+use crate::settings::{get_settings, save_settings, DebuggerSettings, UserSettings};
 
 mod extensions;
 mod launch;
@@ -33,6 +35,7 @@ mod persist;
 mod state;
 mod task;
 mod util;
+mod settings;
 
 pub fn minecraft_dir() -> PathBuf {
     let path = if cfg!(target_os = "windows") {
@@ -100,8 +103,13 @@ fn main() {
             open_url,
             get_mc_profile,
             get_maven_local,
-            leave_splashscreen,
-            register_task_channel
+            // leave_splashscreen,
+            register_task_channel,
+            get_settings,
+            save_settings,
+            export_logs,
+            do_ms_refresh,
+            logout
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -122,6 +130,18 @@ fn main() {
             app.manage(Arc::clone(&manager));
             app.manage(Mutex::new(tasks));
 
+            let persisted_data = app.state::<PersistedData>();
+            let settings : Option<UserSettings> = persisted_data.read_value("settings");
+            if let None = settings {
+                persisted_data.put_value("settings", UserSettings {
+                    debugger: DebuggerSettings {
+                        enabled: false,
+                        suspend: true,
+                        port: "5050".to_string(),
+                    },
+                });
+            }
+
             Ok(())
         })
         .on_window_event(|app_handle, event| {
@@ -135,7 +155,7 @@ fn main() {
                     app_handle.state::<std::sync::Mutex<Option<DiscordIpcClient>>>();
 
                 if let Some(ref mut discord_client) = discord_client.lock().unwrap().deref_mut() {
-                    discord_client.close().unwrap();
+                    // TODO discord_client.close().unwrap();
                 };
             }
         })
@@ -143,11 +163,12 @@ fn main() {
         .expect("error while running tauri application");
 }
 
+// FIXME breaks the whole thing if there is no internet connection
 fn setup_discord_client() -> Result<DiscordIpcClient, Box<dyn Error>> {
     let mut discord_client = DiscordIpcClient::new("823623307567038534")?;
 
-    discord_client.connect()?;
-    launcher_status(&mut discord_client)?;
+    // discord_client.connect()?;
+    // launcher_status(&mut discord_client)?;
 
     Ok(discord_client)
 }
