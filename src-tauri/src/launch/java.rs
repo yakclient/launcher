@@ -5,7 +5,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::fs::{create_dir_all, File};
 use std::{fs, io};
 use std::io::Cursor;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::process::Command;
 use flate2::read::GzDecoder;
@@ -81,6 +80,8 @@ async fn download_jre(
     // }
 
     #[cfg(target_os = "macos")] {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
         let metadata = fs::metadata(&java_command_path).unwrap();
         let mut permissions = metadata.permissions();
 
