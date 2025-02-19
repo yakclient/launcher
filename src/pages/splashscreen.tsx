@@ -51,20 +51,15 @@ const Splashscreen: React.FC = () => {
                 }, 2000)
             } else {
                 setStatus(`Everything is up to date!`)
-                router.push("/login").then(() => {})
-                // setTimeout(() => {
-                //     invoke("leave_splashscreen").then(() => {
-                //         // Nothing
-                //     })
-                // }, 2000)
+                setTimeout(() => {
+                    router.push("/authentication").then(() => {})
+                }, 1000)
             }
-        }).catch(() => {
+        }).catch((e) => {
+            console.log(e)
             setStatus(`Error attempting to update, starting launcher...`)
             setTimeout(() => {
-                // invoke("leave_splashscreen").then(() => {
-                //     // Nothing
-                // })
-                router.push("/login").then(() => {})
+                router.push("/authentication").then(() => {})
             }, 2000)
         });
 

@@ -41,7 +41,9 @@ pub fn patch_library(
 
     let actual_patches = patches
         .iter()
-        .filter(|x| x.match_.contains(&library.name))
+        .filter(|x| {
+            x.match_.contains(&library.name)
+        })
         .collect::<Vec<_>>();
 
     if !actual_patches.is_empty() {

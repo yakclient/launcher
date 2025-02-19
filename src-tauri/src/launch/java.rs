@@ -1,12 +1,14 @@
-use crate::launch::java::JreSetupError::{IOError, ZipError};
-use flate2::read::GzDecoder;
+use crate::launch::java::JreSetupError::{IOError, NetworkError, UnsuccessfulZuluQuery, ZipError};
 use futures::StreamExt;
+use serde::Deserialize;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::{create_dir_all, File};
-use std::io;
+use std::{fs, io};
 use std::io::Cursor;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::process::Command;
+use flate2::read::GzDecoder;
 use tar::Archive;
 use zip::ZipArchive;
 
@@ -15,6 +17,7 @@ pub enum JreSetupError {
     NetworkError(reqwest::Error),
     IOError(io::Error),
     ZipError(zip::result::ZipError),
+    UnsuccessfulZuluQuery,
 }
 
 impl Display for JreSetupError {
@@ -23,6 +26,7 @@ impl Display for JreSetupError {
             JreSetupError::NetworkError(it) => it.to_string(),
             IOError(it) => it.to_string(),
             ZipError(it) => it.to_string(),
+            UnsuccessfulZuluQuery => "Failed to query Zulu for an appropriate JDK to download!".to_string()
         };
 
         write!(f, "Failed to download JDK because of {}", message)
@@ -37,11 +41,12 @@ async fn download_jre(
 ) -> Result<PathBuf, JreSetupError> {
     let jre_path = path.join(format!("jre-{}", version));
 
-    let java_command_path = if (os_name == "windows") {
+    let java_command_path = if os_name == "windows" {
         jre_path.to_path_buf().join("bin").join("java.exe")
     } else {
         jre_path
             .to_path_buf()
+            .join(format!("zulu-{}.jre", version))
             .join("Contents")
             .join("Home")
             .join("bin")
@@ -52,27 +57,75 @@ async fn download_jre(
         return Ok(java_command_path);
     }
 
-    let url = format!(
-        "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jre/hotspot/normal/adoptium",
-        version, os_name, os_arch
-    );
+    let client = reqwest::Client::new();
 
-    let bytes = reqwest::get(url)
+    let url = get_download_url(
+        &client,
+        version, os_name, os_arch,
+    ).await?;
+
+    let bytes = client.get(url)
+        .send()
         .await
-        .map_err(|it| JreSetupError::NetworkError(it))?
+        .map_err(|it| NetworkError(it))?
         .bytes()
         .await
-        .map_err(|it| JreSetupError::NetworkError(it))?;
+        .map_err(|it| NetworkError(it))?;
 
     let cursor = Cursor::new(bytes);
 
-    if os_name == "windows" {
+    // if os_name == "windows" {
         extract_zip(jre_path, cursor)?;
-    } else {
-        extract_tar_gz(jre_path, cursor)?;
+    // } else {
+    //     extract_tar_gz(jre_path, cursor)?;
+    // }
+
+    #[cfg(target_os = "macos")] {
+        let metadata = fs::metadata(&java_command_path).unwrap();
+        let mut permissions = metadata.permissions();
+
+        permissions.set_mode(0o770);
+
+        fs::set_permissions(&java_command_path, permissions).unwrap();
     }
 
     Ok(java_command_path)
+}
+
+#[derive(Deserialize)]
+struct ZuluJreResponse {
+    download_url: String,
+}
+
+async fn get_download_url(
+    client: &reqwest::Client,
+    version: &str,
+    os_name: &str,
+    os_arch: &str,
+) -> Result<String, JreSetupError> {
+
+    let download_type = if cfg!(target_os = "windows") {
+        "zip"
+    } else {
+        "tar_gz"
+    };
+
+    let url = format!(
+        "https://api.azul.com/metadata/v1/zulu/packages?arch={}&java_version={}&os={}&archive_type={}&javafx_bundled=false&java_package_type=jre&page_size=1",
+        os_arch, version, os_name, "zip"
+    );
+
+    println!("Downloading {}", url);
+
+    let response = client.get(&url).send().await.map_err(NetworkError)?;
+
+    if response.status().is_success() {
+        let res: Vec<ZuluJreResponse> = response.json().await.map_err(NetworkError)?;
+
+        Ok(res.get(0).ok_or(UnsuccessfulZuluQuery)?.download_url.clone())
+    } else {
+        Err(UnsuccessfulZuluQuery)
+    }
 }
 
 fn extract_zip(jre_path: PathBuf, cursor: Cursor<bytes::Bytes>) -> Result<(), JreSetupError> {
@@ -185,9 +238,17 @@ mod tests {
             "linux"
         };
 
+        let os_arch = if cfg!(target_arch = "x86_64") {
+            "x64"
+        } else if cfg!(target_arch = "aarch64") {
+            "aarch64"
+        } else {
+            "x64"
+        };
+
         let buf = PathBuf::from("jres");
         create_dir_all(&buf).await.unwrap();
-        let path = download_jre("8", os_name, "x64", buf).await.unwrap();
+        let path = download_jre("8", os_name, os_arch, buf).await.unwrap();
 
         println!("{:?}", path);
     }

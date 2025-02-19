@@ -19,7 +19,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": true,
-        "url": "/authentication",
+        "url": "/splashscreen",
         "maximizable": false,
         "transparent": true
       }

@@ -167,8 +167,8 @@ fn main() {
 fn setup_discord_client() -> Result<DiscordIpcClient, Box<dyn Error>> {
     let mut discord_client = DiscordIpcClient::new("823623307567038534")?;
 
-    // discord_client.connect()?;
-    // launcher_status(&mut discord_client)?;
+    discord_client.connect()?;
+    launcher_status(&mut discord_client)?;
 
     Ok(discord_client)
 }

@@ -124,6 +124,8 @@ pub async fn launch_process(
         .await
         .map_err(|it| JreInstallError(it))?;
 
+    command.current_dir(minecraft_dir());
+
     env.arguments.jvm
         .apply(
             &mut command,

@@ -56,7 +56,6 @@ const Authentication: React.FC = () => {
                 invoke("do_ms_refresh").then(() => {
                     setAuthState(AuthState.SuccessfullyAuthenticated)
                 }).catch((e) => {
-                    console.log(e)
                     setAuthState(AuthState.PromptLogin)
                 })
 
@@ -75,7 +74,7 @@ const Authentication: React.FC = () => {
                     router.push("/home")
                         .then(() => {
                         })
-                }, 1000)
+                }, 500)
                 break
             case AuthState.PromptLogin:
                 break

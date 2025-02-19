@@ -89,6 +89,31 @@ const LaunchLayout: React.FC<{
                                 <Dropdown.Item onClick={() => {
                                     setSettingsOpen(true)
                                 }}>Settings</Dropdown.Item>
+                                <Dropdown.Item onClick={() => {
+                                    alert(
+                                        "info",
+                                        <>
+                                            <Alert.Heading>Refreshing...</Alert.Heading>
+                                        </>
+                                    )
+                                    invoke("do_ms_refresh").then(() => {
+                                        alert(
+                                            "success",
+                                            <>
+                                                <Alert.Heading>Success!</Alert.Heading>
+                                                <div>Refreshed token...</div>
+                                            </>
+                                        )
+                                    }).catch((e) => {
+                                        alert(
+                                            "success",
+                                            <>
+                                                <Alert.Heading>Uh oh!</Alert.Heading>
+                                                <div>Failed to refresh token: {e.toString()}</div>
+                                            </>
+                                        )
+                                    })
+                                }}>Refresh Minecraft Token</Dropdown.Item>
                             </Dropdown.Menu>
                         </Dropdown>
                     </div>

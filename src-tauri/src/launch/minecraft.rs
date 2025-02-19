@@ -239,7 +239,7 @@ impl MinecraftEnvironment {
         } else if cfg!(target_arch = "arm") {
             Some("arm".to_string())
         } else if cfg!(target_arch = "aarch64") {
-            Some("aarch64".to_string())
+            Some("arm64".to_string())
         } else if cfg!(target_arch = "mips") {
             Some("mips".to_string())
         } else if cfg!(target_arch = "mips64") {
@@ -302,11 +302,12 @@ impl MinecraftEnvironment {
         let mut info: VersionInfo =
             serde_json::from_reader(File::open(&client_json_path)?).map_err(Serde)?;
 
-        // Again, thank you so much Modrinth! You actually saved me like weeks
+        // Thank you so much Modrinth! You actually saved me like weeks
         let patches = fetch_library_patches()?;
-        info.libraries = info.libraries.iter().flat_map(|lib| {
-            patch_library(&patches, lib.clone())
+        info.libraries = info.libraries.into_iter().flat_map(|lib| {
+            patch_library(&patches, lib)
         }).collect();
+        println!("{}", serde_json::to_string(&info.libraries).unwrap());
 
         let client_info = (&info.downloads.get("client"))
             .ok_or(InvalidInfo("No client available to download"))?;
@@ -425,21 +426,29 @@ impl MinecraftEnvironment {
             let libraries = info.libraries.clone();
             let iter = libraries
                 .into_iter()
-                .filter(|lib| Self::filter_library(&Self::current_os(), lib))
                 .flat_map(|library| {
                     let mut vec = Vec::<(LibraryProcessRequest, u64)>::new();
 
-                    if let Some(lib) = library.downloads.artifact {
-                        vec.push((
-                            LibraryProcessRequest::DownloadArtifact(lib.clone()),
-                            lib.size,
-                        ))
+                    if let Some(ref lib) = library.downloads.artifact {
+                        if Self::filter_library(&Self::current_os(), &library) {
+                            vec.push((
+                                LibraryProcessRequest::DownloadArtifact(lib.clone()),
+                                lib.size,
+                            ))
+                        }
                     }
 
                     if let Some(natives) = library.natives {
                         let os = Self::current_os();
 
-                        let classifier = natives.get(&os.name.unwrap());
+                        // Simply just to account for the poor design of library-patches. I would like to redo this
+                        // eventually as there is no reason it should be done like this.
+                        let classifier = natives.get(
+                            &format!("{}-{}", &os.name.clone().unwrap(), &os.arch.unwrap())
+                        )
+                            .or_else(|| {
+                                natives.get(&os.name.unwrap())
+                            });
 
                         if let Some(classifier) = classifier {
                             if let Some(classifiers) = library.downloads.classifiers {

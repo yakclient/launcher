@@ -223,8 +223,7 @@ pub async fn generate_mod_extension(
             "location".to_string(),
             home_dir().unwrap().join(".m2").join("repository").to_str().unwrap().to_string(),
         ), (
-            "type".to_string(),
-            "local".to_string()
+            "type".to_string(), "local".to_string()
         )])],
         parents: vec![ExtensionParent {
             group: "dev.extframework.integrations".to_string(),
