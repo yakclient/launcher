@@ -56,7 +56,6 @@ export const ModCard: React.FC<{
                         mod.metadata.author ? `By ${mod.metadata.author}` : ""
                     }
                 </div>
-
             </Stack>
 
             <Card.Text style={{

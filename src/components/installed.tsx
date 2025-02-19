@@ -24,7 +24,7 @@ const Installed: React.FC = () => {
         let enabledMods = await invoke("get_mod_state") as ModPointer[]
 
         setQueryingServer(true)
-        Promise.all(appliedExtensions
+        let extension_metadata = await Promise.all(appliedExtensions
             .filter((it) => it.repository_type == "REMOTE")
             .map(async (pointer) => {
                 let [group, name, version] = pointer.descriptor.split(":")
@@ -42,16 +42,14 @@ const Installed: React.FC = () => {
                     pointer: pointer
                 } as WrappedExtension;
             }))
-            .then((extension_metadata) => {
-                setQueryingServer(false)
-                setExtensions(extension_metadata)
-            })
+
+        setExtensions(extension_metadata)
 
         setLocalExtensions(appliedExtensions
             .filter((it) => it.repository_type == "LOCAL")
         )
 
-        Promise.all(enabledMods.map(async (pointer) => {
+        let mod_metadata = await Promise.all(enabledMods.map(async (pointer) => {
             const metadataQuery = `https://api.modrinth.com/v2/project/${pointer.project_id}`;
 
             let it1 = await fetch(metadataQuery);
@@ -61,10 +59,11 @@ const Installed: React.FC = () => {
                 state: ExtensionState.Enabled,
                 pointer: pointer
             } as WrappedMod;
-        })).then((mod_metadata) => {
-            setQueryingServer(false)
-            setMods(mod_metadata)
-        })
+        }))
+
+        setMods(mod_metadata)
+
+        setQueryingServer(false)
     }
 
     useEffect(() => {

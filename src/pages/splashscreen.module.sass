@@ -1,18 +1,32 @@
 #container
   position: absolute
-  top: 10%
-  left: 50%
   width: 100vw
-  transform: translate(-50%, 0)
-  display: block
-  align-content: center
-  justify-content: center
-  text-align: center
-  font-weight: bold
-  img
-    z-index: 50
-  h2
-    color: #a3a3a3
+  #bg
+    z-index: -100
+    display: block
+    position: absolute
+    width: 100vw
+    height: 100vh
+    img
+      filter: blur(2px)
+      width: 100%
+      height: 100%
+      object-fit: cover
+      object-position: center
+  .centered
+    max-width: fit-content
+    margin: 50px auto
+  #title
+    margin-top: 200px
+    h1
+      font-size: 50px
+  #login
+    margin-top: 100px
+    justify-content: center
+    button
+      display: block
+      //max-width: 100px
+      margin: 10px auto
   #logo_container
     left: 50%
     margin: 20px 0
@@ -34,3 +48,22 @@
     img:nth-child(2)
       z-index: 5
 
+
+
+//#container
+//  position: absolute
+//  top: 10%
+//  left: 50%
+//  width: 100vw
+//  transform: translate(-50%, 0)
+//  display: block
+//  align-content: center
+//  justify-content: center
+//  text-align: center
+//  font-weight: bold
+//  img
+//    z-index: 50
+//  h2
+//    color: #a3a3a3
+
+//

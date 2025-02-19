@@ -21,10 +21,12 @@ use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use reqwest::Client;
 use tokio::fs::create_dir_all;
 use tokio::io::{self, AsyncWriteExt};
 use uuid::serde::urn::deserialize;
 use zip_extract::{extract, ZipExtractError};
+use crate::launch::lib_patch::{fetch_library_patches, patch_library};
 
 #[derive(Debug)]
 pub enum Error {
@@ -66,7 +68,6 @@ impl Display for Error {
 #[derive(Debug)]
 pub struct MinecraftEnvironment {
     pub client_jar: PathBuf,
-    pub natives: PathBuf,
     pub libraries: Vec<PathBuf>,
     pub asset_path: PathBuf,
     pub asset_index_name: String,
@@ -111,10 +112,10 @@ fn replace_option_variable(
             if let Some(value) = value {
                 str.replace_range(index..closing_brace + 1, value)
             } else {
-                return None
+                return None;
             }
         } else {
-            return Some(str)
+            return Some(str);
         }
     }
 }
@@ -188,8 +189,8 @@ impl FormatForCommand for Vec<Argument> {
 const MINECRAFT_RESOURCES: &'static str = "https://resources.download.minecraft.net";
 
 impl MinecraftEnvironment {
-    async fn download_version_info(version: &str, path: &PathBuf) -> Result<(), Error> {
-        let response = reqwest::get(VERSION_MANIFEST).await.map_err(Network)?;
+    async fn download_version_info(version: &str, client: &Client, path: &PathBuf) -> Result<(), Error> {
+        let response = client.get(VERSION_MANIFEST).send().await.map_err(Network)?;
         let bytes = response.bytes().await.map_err(Network)?;
         let bytes = bytes.as_ref();
         let manifest: VersionManifest = serde_json::from_slice(bytes).map_err(Serde)?;
@@ -202,7 +203,7 @@ impl MinecraftEnvironment {
 
         let url = entry.url;
 
-        let response = reqwest::get(url).await.map_err(Network)?;
+        let response = client.get(url).send().await.map_err(Network)?;
         let bytes = response.bytes().await.map_err(Network)?;
 
         copy(&mut Cursor::new(bytes), &mut File::create(path)?)?;
@@ -238,7 +239,7 @@ impl MinecraftEnvironment {
         } else if cfg!(target_arch = "arm") {
             Some("arm".to_string())
         } else if cfg!(target_arch = "aarch64") {
-            Some("aarch64".to_string())
+            Some("arm64".to_string())
         } else if cfg!(target_arch = "mips") {
             Some("mips".to_string())
         } else if cfg!(target_arch = "mips64") {
@@ -287,15 +288,26 @@ impl MinecraftEnvironment {
         tasks: &mut TaskManager,
     ) -> Result<MinecraftEnvironment, Error> {
         let version_path = path.join("versions").join(version);
-        create_dir_all(&version_path).await?;
+        if !version_path.exists() {
+            create_dir_all(&version_path).await?;
+        }
+
+        let client = Client::new();
 
         let client_json_path = version_path.join(format!("{}.json", version));
         if !client_json_path.exists() {
-            Self::download_version_info(version, &client_json_path).await?;
+            Self::download_version_info(version, &client, &client_json_path).await?;
         }
 
-        let info: VersionInfo =
+        let mut info: VersionInfo =
             serde_json::from_reader(File::open(&client_json_path)?).map_err(Serde)?;
+
+        // Thank you so much Modrinth! You actually saved me like weeks
+        let patches = fetch_library_patches()?;
+        info.libraries = info.libraries.into_iter().flat_map(|lib| {
+            patch_library(&patches, lib)
+        }).collect();
+        println!("{}", serde_json::to_string(&info.libraries).unwrap());
 
         let client_info = (&info.downloads.get("client"))
             .ok_or(InvalidInfo("No client available to download"))?;
@@ -303,7 +315,7 @@ impl MinecraftEnvironment {
         let client_path = version_path.join(format!("{}.jar", &info.id));
 
         let client_jar_fut = if !client_path.exists() {
-            let mut client_response = reqwest::get(&client_info.url)
+            let mut client_response = client.get(&client_info.url).send()
                 .await
                 .map_err(Network)?
                 .bytes_stream();
@@ -316,11 +328,11 @@ impl MinecraftEnvironment {
                     client_size,
                     &mut task.progress,
                 )
-                .await;
+                    .await;
 
                 result?;
 
-                task.progress.update(1.0);
+                task.progress.update(1.0).await;
 
                 Ok::<(), Error>(())
             });
@@ -339,6 +351,7 @@ impl MinecraftEnvironment {
             async fn do_action(
                 self,
                 path: &PathBuf,
+                client: &Client,
                 mut tracker: Progress,
             ) -> Result<Option<PathBuf>, Error> {
                 match self {
@@ -353,7 +366,7 @@ impl MinecraftEnvironment {
 
                         create_dir_all(path.parent().unwrap()).await?;
 
-                        let mut response = reqwest::get(&info.url)
+                        let mut response = client.get(&info.url).send()
                             .await
                             .map_err(Network)?
                             .bytes_stream();
@@ -366,7 +379,7 @@ impl MinecraftEnvironment {
                             size,
                             &mut tracker,
                         )
-                        .await;
+                            .await;
 
                         result?;
 
@@ -380,7 +393,7 @@ impl MinecraftEnvironment {
                         create_dir_all(&path).await?;
 
                         let response = map_async(
-                            reqwest::get(&info.url).await,
+                            client.get(&info.url).send().await,
                             |r| r.bytes(),
                         ).await.compress();
 
@@ -403,27 +416,39 @@ impl MinecraftEnvironment {
             }
         }
 
+        let bin_path = path.join("bin");
+        if bin_path.exists() {
+            std::fs::remove_dir_all(bin_path)?;
+        }
         let (client_libraries, libraries_task) = tasks.submit("Download Minecraft libraries", |task: Task| {
             let arc = task.to_arc();
 
             let libraries = info.libraries.clone();
             let iter = libraries
                 .into_iter()
-                .filter(|lib| Self::filter_library(&Self::current_os(), lib))
                 .flat_map(|library| {
                     let mut vec = Vec::<(LibraryProcessRequest, u64)>::new();
 
-                    if let Some(lib) = library.downloads.artifact {
-                        vec.push((
-                            LibraryProcessRequest::DownloadArtifact(lib.clone()),
-                            lib.size,
-                        ))
+                    if let Some(ref lib) = library.downloads.artifact {
+                        if Self::filter_library(&Self::current_os(), &library) {
+                            vec.push((
+                                LibraryProcessRequest::DownloadArtifact(lib.clone()),
+                                lib.size,
+                            ))
+                        }
                     }
 
                     if let Some(natives) = library.natives {
                         let os = Self::current_os();
 
-                        let classifier = natives.get(&os.name.unwrap());
+                        // Simply just to account for the poor design of library-patches. I would like to redo this
+                        // eventually as there is no reason it should be done like this.
+                        let classifier = natives.get(
+                            &format!("{}-{}", &os.name.clone().unwrap(), &os.arch.unwrap())
+                        )
+                            .or_else(|| {
+                                natives.get(&os.name.unwrap())
+                            });
 
                         if let Some(classifier) = classifier {
                             if let Some(classifiers) = library.downloads.classifiers {
@@ -447,7 +472,7 @@ impl MinecraftEnvironment {
             let iter = vec.into_iter();
 
             let futures = iter.map(|(request, size)| {
-                request.do_action(&path, Task::child(&arc, (size as f64) / total_size))
+                request.do_action(&path, &client, Task::child(&arc, (size as f64) / total_size))
             });
 
             (join_all(futures), arc)
@@ -455,33 +480,41 @@ impl MinecraftEnvironment {
 
         let assets_path = path.join("assets");
         let indexes_path = assets_path.join("indexes");
-        create_dir_all(&indexes_path).await?;
-        let objects_path = assets_path.join("objects");
-        create_dir_all(&objects_path).await?;
-
-        let indexes_path = indexes_path.join(format!("{}.json", info.assets));
-
         if !indexes_path.exists() {
+            create_dir_all(&indexes_path).await?;
+        }
+        let objects_path = assets_path.join("objects");
+        if !objects_path.exists() {
+            create_dir_all(&objects_path).await?;
+        }
+
+        let indexes_json_path = indexes_path.join(format!("{}.json", info.assets));
+
+        if !indexes_json_path.exists() {
             let asset_index = reqwest::get(&info.asset_index.url).await?.bytes().await?;
             copy(
                 &mut Cursor::new(asset_index),
-                &mut File::create(&indexes_path)?,
+                &mut File::create(&indexes_json_path)?,
             )?;
         }
 
         let asset_index: AssetObjects =
-            serde_json::from_reader(File::open(&indexes_path)?).map_err(Serde)?;
+            serde_json::from_reader(File::open(&indexes_json_path)?).map_err(Serde)?;
 
         let (asset_fut, assets_task) = tasks.submit("Download Minecraft Assets", |task: Task| {
-            let objects = asset_index.objects;
+            let objects = &asset_index.objects;
 
             let task = Task::to_arc(task);
 
             let borrowable_task = Arc::clone(&task);
 
+            let total_size = objects
+                .iter()
+                .map(|o| o.1.size).sum::<u64>();
+
             let iter = objects
-                .into_iter()
-                .map(move |entry: (String, AssetContent)| {
+                .iter()
+                .map(move |entry| {
                     let checksum = &entry.1.hash;
 
                     let parent_path = (&objects_path).join(&checksum[0..2].to_string());
@@ -489,57 +522,52 @@ impl MinecraftEnvironment {
 
                     (path, entry)
                 })
-                .filter(|entry| !entry.0.exists());
-
-            let vec = iter.collect::<Vec<(PathBuf, (String, AssetContent))>>();
-            let total_size = vec
-                .iter()
-                .fold(0u64, |acc, e: &(PathBuf, (String, AssetContent))| {
-                    acc + e.1 .1.size
-                });
-
-            let iter = vec
-                .into_iter()
-                .map(|entry: (PathBuf, (String, AssetContent))| {
-                    let checksum = entry.1 .1.hash;
-                    let size = entry.1 .1.size;
+                .filter(|entry| !entry.0.exists())
+                .map(|entry| {
+                    let checksum = &entry.1.1.hash;
+                    let size = &entry.1.1.size;
 
                     let path = entry.0;
 
                     let mut tracker =
-                        Task::child(&borrowable_task, (size as f64) / (total_size as f64));
+                        Task::child(&borrowable_task, (*size as f64) / (total_size as f64));
+
+                    let client = Arc::new(&client);
 
                     async move {
                         let mut tries = 0;
+                        create_dir_all(&path.parent().unwrap()).await?;
+
+                        let client = Arc::clone(&client);
+
                         for _ in 0..2 {
+                            let mut asset_response = client.get(
+                                format!(
+                                    "{}/{}/{}",
+                                    MINECRAFT_RESOURCES,
+                                    checksum[0..2].to_string(),
+                                    checksum.to_string()
+                                ).as_str(),
+                            ).send();
+
                             tries = tries + 1;
                             let r = async {
-                                let mut asset_response = reqwest::get(
-                                    format!(
-                                        "{}/{}/{}",
-                                        MINECRAFT_RESOURCES,
-                                        checksum[0..2].to_string(),
-                                        checksum.to_string()
-                                    )
-                                    .as_str(),
-                                )
-                                .await?
-                                .bytes_stream();
+                                let mut asset_response = asset_response
+                                    .await?
+                                    .bytes_stream();
 
-                                create_dir_all(&path.parent().unwrap()).await?;
 
                                 let r: Result<(), Error> = copy_stream_tracking(
                                     &mut asset_response,
                                     &mut File::create(&path).map_err(IO)?,
-                                    size,
+                                    size.clone(),
                                     &mut tracker,
                                 )
-                                .await;
+                                    .await;
                                 r?;
 
                                 Ok::<(), Error>(())
-                            }
-                            .await;
+                            }.await;
 
                             if r.is_ok() || (r.is_err() && tries >= 3) {
                                 return r;
@@ -573,7 +601,6 @@ impl MinecraftEnvironment {
 
         Result::<MinecraftEnvironment, Error>::Ok(MinecraftEnvironment {
             client_jar: version_path.join(format!("{}.jar", &info.id)),
-            natives: path.join("bin"),
             libraries: library_paths,
             asset_path: assets_path,
             asset_index_name: info.asset_index.id,
@@ -675,18 +702,18 @@ pub enum ValueType {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Rule {
-    action: String,
+pub struct Rule {
+    pub action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    os: Option<OsRule>,
+    pub os: Option<OsRule>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    features: Option<Features>,
+    pub features: Option<Features>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct OsRule {
-    name: Option<String>,
-    arch: Option<String>,
+pub struct OsRule {
+    pub name: Option<String>,
+    pub arch: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -731,27 +758,27 @@ pub struct JavaVersion {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Library {
-    downloads: LibraryDownloads,
-    name: String,
+pub struct Library {
+    pub downloads: LibraryDownloads,
+    pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rules: Option<Vec<Rule>>,
+    pub rules: Option<Vec<Rule>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    natives: Option<HashMap<String, String>>,
+    pub natives: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    extract: Option<LibraryExtract>,
+    pub extract: Option<LibraryExtract>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct LibraryExtract {
-    exclude: Vec<String>,
+pub struct LibraryExtract {
+    pub exclude: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct LibraryDownloads {
-    artifact: Option<DownloadInfo>,
+pub struct LibraryDownloads {
+    pub artifact: Option<DownloadInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    classifiers: Option<HashMap<String, DownloadInfo>>,
+    pub classifiers: Option<HashMap<String, DownloadInfo>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

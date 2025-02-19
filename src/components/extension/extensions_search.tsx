@@ -74,7 +74,7 @@ const ExtensionSearch: React.FC = () => {
     ])
     const [modalOpen, setModalOpen] = useState(false);
     const [repositoryInputTarget, setRepositoryInputTarget] = useState("");
-    const [queryingServer, setQueryingServer] = useState(false)
+    const [queryingServer, setQueryingServer] = useState(true)
     const addAlert = useContext(Alerts)
 
     useEffect(() => {
@@ -118,8 +118,6 @@ const ExtensionSearch: React.FC = () => {
                             repository: m2Repo,
                             repository_type: "LOCAL"
                         }])
-
-                    console.log(appliedExtensions)
 
                     await invoke("set_extension_state", {
                         updated: appliedExtensions

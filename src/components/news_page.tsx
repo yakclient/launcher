@@ -1,8 +1,6 @@
 import React from "react";
-import {Badge, Button, Card, CardBody, Stack} from "react-bootstrap";
+import {Card, Stack} from "react-bootstrap";
 import Image from "next/image";
-import defaultExtensionImg from "../../public/icons/extension_icon.png";
-import {bottom} from "@popperjs/core";
 
 type Article = {
     title: string,
@@ -30,6 +28,12 @@ const News: React.FC = () => {
             author: "Durgan McBroom",
             image: undefined,
             description: "YakClient will now automatically update itself, and some major internal fixes/improvements."
+        },
+        {
+            title: "Seasonal updates, Fabric fixes, internal rewrites",
+            author: "Durgan McBroom",
+            image: undefined,
+            description: "Lots of small little bug fixes and optimizations that were long needed. A large internal rewrite + more efficient bytecode injection. KNOWN BUGS: If you can't hear sounds in game (usually 1.8.9), press F3+T until you can."
         },
     ]
 

@@ -3,7 +3,7 @@ use crate::launch::java::JreSetupError;
 use crate::launch::minecraft::MinecraftEnvironment;
 use crate::launch::process::{capture_child, launch_process, ProcessStdoutEvent};
 use crate::launch::ClientError::{ClientNotRunning, ClientProcessError, IoError, MinecraftSetupErr, ModExtError, NetworkError, Unauthenticated};
-use crate::mods::{generate_mod_extension, ModExtGenerationError};
+use crate::mods::{get_mod_extension, ModExtGenerationError};
 use crate::persist::PersistedData;
 use crate::state::{Extension, LaunchInstance, MinecraftAuthentication, Mod};
 use crate::task::TaskManager;
@@ -18,15 +18,17 @@ use std::io::{Error, Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{Emitter, State};
 use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
+use crate::settings::UserSettings;
 
 mod client;
 mod java;
 mod minecraft;
 mod process;
-// const CLIENT_VERSION: &'static str = "1.0.11-BETA";
+mod lib_patch;
+pub mod logs;
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -53,6 +55,7 @@ impl From<reqwest::Error> for ClientError {
         NetworkError(value)
     }
 }
+
 impl Serialize for ClientError {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -86,7 +89,6 @@ pub async fn launch_minecraft(
     persisted_data: State<'_, PersistedData>,
     console_channel: Channel<ProcessStdoutEvent>,
     discord_client: State<'_, std::sync::Mutex<Option<DiscordIpcClient>>>,
-    app: AppHandle,
     tasks: State<'_, Mutex<TaskManager>>
 ) -> Result<(), ClientError> {
     if process.lock().await.is_some() {
@@ -111,12 +113,14 @@ pub async fn launch_minecraft(
 
     let mods: Vec<Mod> = persisted_data.read_value("mods").unwrap_or(Vec::new());
     if !mods.is_empty() {
-        let mod_ext = generate_mod_extension(mods, yakclient_dir.join("repo"), version.clone())
+        let mod_ext = get_mod_extension(&mods, yakclient_dir.join("repo"))
             .await
             .map_err(|e| ModExtError(e))?;
 
         extensions.push(mod_ext);
     }
+
+    println!("{:?}", extensions);
 
     let env = MinecraftEnvironment::environment(
         minecraft_dir(),
@@ -130,9 +134,9 @@ pub async fn launch_minecraft(
         client_path,
         &ms_auth,
         &extensions,
-        &env
-    )
-    .await?;
+        &env,
+        persisted_data.read_value::<UserSettings, &str>("settings").unwrap().debugger
+    ).await?;
 
     let child = capture_child(child, console_channel);
 

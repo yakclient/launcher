@@ -21,9 +21,11 @@
 
 .title_image {
     margin: 0;
+    filter: blur(2px);
+    will-change: filter;
 }
 
-.blured_title_image {
+.blurred_title_image {
     position: absolute;
     top: 0;
     left: 0;
@@ -76,6 +78,7 @@
     right: 0;
     margin: 10px;
     transition: all .1s ease-in-out;
+    z-index: 100;
 }
 
 #profile img {

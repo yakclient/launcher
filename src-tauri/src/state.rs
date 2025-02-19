@@ -14,7 +14,7 @@ pub struct OAuthConfig {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MinecraftAuthentication {
     pub access_token: String,
-    pub expires_in: u64,
+    pub expires_in: u128,
     pub refresh_token: String,
     pub profile: MinecraftProfile,
 }

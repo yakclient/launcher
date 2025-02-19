@@ -60,7 +60,7 @@ async fn download_client(
 }
 
 pub async fn get_client_version() -> Result<String, ClientError> {
-    Ok("1.0.12-BETA".to_string())
+    Ok("1.1.2-BETA".to_string())
     // let path = path.join("client_version.txt");
     //
     // let download_result: Result<(), ClientError> = {

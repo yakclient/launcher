@@ -2,24 +2,23 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Add, Deref, DerefMut};
 use std::sync::Arc;
 use std::{io, result};
-
+use std::time::{Duration, SystemTime};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tauri::State;
 use tokio::sync::Mutex;
+use tokio::time::Instant;
 use url::form_urlencoded;
 
 use MicrosoftAuthenticationError::{IOError, ServerError};
 
 use crate::oauth::server::{start, HttpServerError};
-use crate::oauth::MicrosoftAuthenticationError::{
-    MalformedOAuthRequest, MsError, NetworkError, XboxLiveResponseError,
-};
+use crate::oauth::MicrosoftAuthenticationError::{MalformedOAuthRequest, MsError, NetworkError, NoRefreshToken, XboxLiveResponseError};
 use crate::persist::PersistedData;
 use crate::state::{MinecraftAuthentication, MinecraftProfile, OAuthConfig};
 
@@ -37,6 +36,7 @@ pub enum MicrosoftAuthenticationError {
     NetworkError(Error),
     MsError(MsErrorResponse),
     XboxLiveResponseError(String),
+    NoRefreshToken
 }
 impl Serialize for MicrosoftAuthenticationError {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -56,6 +56,7 @@ impl Display for MicrosoftAuthenticationError {
             NetworkError(e) => e.to_string(),
             MsError(e) => e.error_description.clone(),
             XboxLiveResponseError(e) => e.clone(),
+            NoRefreshToken => "No refresh token".to_string()
         };
         write!(f, "{}", str)
     }
@@ -95,6 +96,46 @@ pub async fn use_no_auth() -> Result<()> {
 // }
 
 #[tauri::command]
+pub async fn logout(
+    persisted_data: State<'_, PersistedData>
+) -> Result<()> {
+    persisted_data.remove_value("ms_auth");
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn do_ms_refresh(
+    oauth_config: State<'_, OAuthConfig>,
+    persisted_data: State<'_, PersistedData>,
+) -> Result<()> {
+    let old_creds : Option<MinecraftAuthentication> = persisted_data.read_value("ms_auth");
+
+    if let Some(old_auth) = old_creds {
+        let ms_token = refresh_ms_token(
+            old_auth.refresh_token.as_str(),
+            &oauth_config
+        ).await?;
+        let xbx_live_token = get_xbxl_token(&ms_token).await?;
+        let xsts_live_token = get_xsts_token(xbx_live_token).await?;
+        let minecraft_token = get_minecraft_access_token(xsts_live_token).await?;
+        let minecraft_profile = get_minecraft_profile(&minecraft_token).await?;
+
+        persisted_data.put_value("ms_auth", MinecraftAuthentication {
+            access_token: minecraft_token.access_token,
+            expires_in: minecraft_token.expires_in,
+            refresh_token: ms_token.refresh_token,
+            profile: minecraft_profile,
+        });
+
+        return Ok(())
+    }
+
+    Err(NoRefreshToken)
+}
+
+
+#[tauri::command]
 pub async fn microsoft_login(
     oauth_config: State<'_, OAuthConfig>,
     persisted_data: State<'_, PersistedData>,
@@ -106,7 +147,7 @@ pub async fn microsoft_login(
         oauth_config.deref(),
         format!("http://localhost:6879/{}", OAUTH_PATH),
     )
-    .await?;
+        .await?;
     let xbx_live_token = get_xbxl_token(&ms_token).await?;
     let xsts_live_token = get_xsts_token(xbx_live_token).await?;
     let minecraft_token = get_minecraft_access_token(xsts_live_token).await?;
@@ -180,7 +221,7 @@ async fn launch_login(config: &OAuthConfig) -> Result<Option<MicrosoftCredential
         &config,
         format!("http://localhost:6879/{}", OAUTH_PATH).as_str(),
     ))
-    .map_err(|e| IOError(e))?;
+        .map_err(|e| IOError(e))?;
 
     server.await.expect("Failed to start web server");
 
@@ -211,7 +252,7 @@ fn make_oauth_path(config: &OAuthConfig, redirect_uri: &str) -> OsString {
     OsString::from(str)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct MsTokenResponse {
     access_token: String,
     token_type: String,
@@ -241,9 +282,9 @@ async fn get_ms_token(
             "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
             tenant = oauth_config.tenant
         )
-        .as_str(),
+            .as_str(),
     )
-    .unwrap();
+        .unwrap();
 
     println!("{}", url);
     let client = reqwest::Client::new();
@@ -366,7 +407,7 @@ struct MinecraftAccessToken {
     roles: Vec<String>, // Empty array for roles
     access_token: String,
     token_type: String,
-    expires_in: u64,
+    expires_in: u128,
 }
 
 async fn get_minecraft_access_token(
@@ -423,12 +464,62 @@ async fn get_minecraft_profile(
     };
 }
 
+#[derive(Deserialize, Debug)]
+struct MsRefreshTokenResponse {
+    access_token: String,
+    token_type: String,
+    expires_in: u64,
+    scope: String,
+    refresh_token: Option<String>,
+    id_token: Option<String>,
+}
+
+async fn refresh_ms_token(
+    refresh_token: &str,
+    config: &OAuthConfig,
+) -> Result<MsTokenResponse> {
+    let client = reqwest::Client::new();
+
+    let body = serde_urlencoded::to_string(&[
+        ("client_id", config.client_id.clone()),
+        ("scope", "xboxlive.signin".to_string()),
+        ("refresh_token", refresh_token.to_string()),
+        ("grant_type", "refresh_token".to_string()),
+    ]).unwrap();
+
+    let response = client
+        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", config.tenant))
+        .header(ACCEPT, "application/x-www-form-urlencoded")
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await.map_err(NetworkError)?;
+
+    if response.status().is_success() {
+        let response: MsRefreshTokenResponse = response.json().await?;
+
+        Ok(MsTokenResponse {
+            access_token: response.access_token,
+            token_type: response.token_type,
+            expires_in: response.expires_in,
+            scope: response.scope,
+            refresh_token: response.refresh_token.unwrap_or(refresh_token.to_string()),
+            id_token: response.id_token,
+        })
+    } else {
+        Err(XboxLiveResponseError(
+            format!(
+                "Server error, received non 200 response code. Message: {}",
+                response.text().await.unwrap_or("null".to_string()),
+            )
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::oauth::{
-        get_minecraft_access_token, get_minecraft_profile, get_ms_token, get_xbxl_token,
-        get_xsts_token, launch_login, make_oauth_path, OAUTH_PATH,
-    };
+    use reqwest::header::AUTHORIZATION;
+    use crate::oauth::{get_minecraft_access_token, get_minecraft_profile, get_ms_token, get_xbxl_token, get_xsts_token, launch_login, make_oauth_path, refresh_ms_token, OAUTH_PATH};
     use crate::state::OAuthConfig;
 
     #[test]
@@ -454,8 +545,8 @@ mod tests {
             &config,
             format!("http://localhost:6879/{}", OAUTH_PATH),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         println!("ACCESS TOKEN: {}", token.access_token);
 
         let xbx_live_token = get_xbxl_token(&token).await.unwrap();
@@ -471,6 +562,19 @@ mod tests {
         println!("Minecraft TOKEN: {}", minecraft_token.access_token);
 
         let minecraft_profile = get_minecraft_profile(&minecraft_token).await.unwrap();
+
+        let response = reqwest::Client::new()
+            .get("https://api.minecraftservices.com/entitlements/mcstore")
+            .header(
+                AUTHORIZATION,
+                format!("Bearer {}", &minecraft_token.access_token),
+            )
+            .send()
+            .await.unwrap();
+
+        println!("{}", response.text().await.unwrap());
+        // response_type
+
 
         println!(
             "Minecraft PROFILE: {}, {}",
@@ -493,5 +597,53 @@ mod tests {
         );
 
         println!("{}", path.to_str().unwrap())
+    }
+
+    #[tokio::test]
+    async fn test_token_refresh() {
+        let config = OAuthConfig {
+            client_id: "d64e5a9a-514f-482a-a8b4-967918739d9c".to_string(),
+            response_type: "code".to_string(),
+            scope: "XboxLive.signin%20offline_access".to_string(),
+            tenant: "consumers".to_string(),
+        };
+
+        let creds = launch_login(&config).await.unwrap().unwrap();
+
+        let ms_token_one = get_ms_token(
+            creds.token,
+            &config,
+            format!("http://localhost:6879/{}", OAUTH_PATH),
+        ).await
+            .unwrap();
+
+        println!("TOKEN one: {:?}", ms_token_one);
+
+        let refreshed_token = refresh_ms_token(
+            ms_token_one.refresh_token.as_str(),
+            &config
+        ).await.unwrap();
+
+        let xbx_live_token = get_xbxl_token(&refreshed_token).await.unwrap();
+        let xsts_live_token = get_xsts_token(xbx_live_token).await.unwrap();
+        let minecraft_token = get_minecraft_access_token(xsts_live_token).await.unwrap();
+        let minecraft_profile = get_minecraft_profile(&minecraft_token).await.unwrap();
+        let response = reqwest::Client::new()
+            .get("https://api.minecraftservices.com/entitlements/mcstore")
+            .header(
+                AUTHORIZATION,
+                format!("Bearer {}", &minecraft_token.access_token),
+            )
+            .send()
+            .await.unwrap();
+
+        println!("{}", response.text().await.unwrap());
+        // response_type
+
+
+        println!(
+            "Minecraft PROFILE: {}, {}",
+            minecraft_profile.name, minecraft_profile.id
+        );
     }
 }
