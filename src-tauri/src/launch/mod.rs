@@ -113,7 +113,7 @@ pub async fn launch_minecraft(
 
     let mods: Vec<Mod> = persisted_data.read_value("mods").unwrap_or(Vec::new());
     if !mods.is_empty() {
-        let mod_ext = get_mod_extension(&mods, yakclient_dir.join("repo"))
+        let mod_ext = get_mod_extension(&mods, yakclient_dir.join("repo").join("mods-v2"))
             .await
             .map_err(|e| ModExtError(e))?;
 

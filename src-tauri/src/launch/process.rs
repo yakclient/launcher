@@ -202,7 +202,7 @@ pub fn capture_child(mut child: Child, channel: Channel<ProcessStdoutEvent>) -> 
     thread::spawn(move || {
         loop {
             sleep(Duration::from_millis(2));
-            let mut buffer: [u8; 64] = [0; 64];
+            let mut buffer: [u8; 1028] = [0; 1028];
             // println!("Looping");
             if let Ok(length) = child_stdout.read(&mut buffer) {
                 if length == 0 {
@@ -223,7 +223,7 @@ pub fn capture_child(mut child: Child, channel: Channel<ProcessStdoutEvent>) -> 
     thread::spawn(move || {
         loop {
             sleep(Duration::from_millis(2));
-            let mut buffer: [u8; 64] = [0; 64];
+            let mut buffer: [u8; 1028] = [0; 1028];
             if let Ok(length) = child_stderr.read(&mut buffer) {
                 if length == 0 {
                     break;

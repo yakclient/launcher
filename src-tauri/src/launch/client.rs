@@ -60,33 +60,7 @@ async fn download_client(
 }
 
 pub async fn get_client_version() -> Result<String, ClientError> {
-    Ok("1.1.2-BETA".to_string())
-    // let path = path.join("client_version.txt");
-    //
-    // let download_result: Result<(), ClientError> = {
-    //     let request = reqwest::get("https://static.extframework.dev/client/latest_version")
-    //         .await
-    //         .map_err(NetworkError)?;
-    //
-    //     let bytes = request.bytes().await.map_err(NetworkError)?;
-    //
-    //     io::copy(
-    //         &mut Cursor::new(bytes),
-    //         &mut File::create(&path).map_err(IoError)?,
-    //     )
-    //     .map_err(IoError)?;
-    //     Ok(())
-    // };
-    //
-    // if let Err(it) = download_result {
-    //     if !&path.exists() {
-    //         return Err(it);
-    //     }
-    // }
-    //
-    // read_to_string(&path)
-    //     .map(|it| it.trim().to_string())
-    //     .map_err(IoError)
+    Ok("1.1.5-BETA".to_string())
 }
 
 #[cfg(test)]

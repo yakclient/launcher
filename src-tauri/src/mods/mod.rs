@@ -228,7 +228,7 @@ pub async fn generate_mod_extension(
         parents: vec![ExtensionParent {
             group: "dev.extframework.integrations".to_string(),
             extension: "fabric-ext".to_string(),
-            version: "1.0.2-BETA".to_string(),
+            version: "1.0.3-BETA".to_string(),
         }],
         partitions: target_partitions,
         // .iter()
